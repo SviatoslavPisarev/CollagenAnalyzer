@@ -50,7 +50,11 @@ AMF treatment, across samples and across experiments, and makes publication-read
 <a href="#metrics">10. What the numbers mean</a><br>
 <a href="#good">11. Good practice for comparisons</a><br>
 <a href="#trouble">12. Troubleshooting</a><br>
-<a href="#cli">13. Command line (optional)</a></p>
+<a href="#cli">13. Command line (optional)</a><br>
+<a href="#qc">14. Quality check and the per-tile table</a><br>
+<a href="#planner">15. Experiment Planner</a><br>
+<a href="#patterns">16. Patterns (tile types)</a><br>
+<a href="#fibermodel">17. Fiber model (trained fiber mask)</a></p>
 </div>
 
 <h2 id="install"><a name="install"></a>1. Installing and starting the app</h2>
@@ -114,7 +118,7 @@ red fiber mask follows the fibers. For a first, fast look set <i>Analyse every N
 <h2 id="names" class="newpage"><a name="names"></a>3. Naming your files</h2>
 <p>The app reads the experimental conditions from the file names. Parts are separated by underscores and can be in any order
 after the first two; parts that are missing are simply left empty.</p>
-<p>Example: <code>112026_3_Collagen_3mgml_NC_0.5nM_inc45min_other-dried-edges_z_AMF_500Hz_3min_10Vpp_8.5V_1013.nd2</code></p>
+<p>Example: <code>112026_3_Collagen_3mgml_NC_0.5nM_inc45min_other-dried-edges_z_AMF_500Hz_3min_10Vpp_8.5V_2App_500turns_40mTpk_1013.nd2</code></p>
 <table>
 <tr><th>Part of the name</th><th>Meaning</th><th>Accepted forms</th></tr>
 <tr><td><code>mmddyy_##_</code> (start, required)</td><td>Date and sample number. Files with the same start are one sample and are compared before vs after.</td><td><code>112026_3_</code></td></tr>
@@ -123,6 +127,10 @@ after the first two; parts that are missing are simply left empty.</p>
 <tr><td>time</td><td>AMF exposure time</td><td><code>3min</code>, <code>1.5min</code>, <code>3min30s</code>, <code>3m30s</code>, <code>90s</code></td></tr>
 <tr><td><code>#Vpp</code></td><td>AMF Vp-p set on the instrument</td><td><code>10Vpp</code>, <code>10Vp-p</code>, <code>10Vpk-pk</code>, <code>2p5Vpp</code>, <code>500mVpp</code></td></tr>
 <tr><td><code>#V</code></td><td>Measured AMF voltage</td><td><code>8.5V</code>, <code>8p5V</code>, <code>850mV</code></td></tr>
+<tr><td><code>#App</code></td><td>AMF current Ap-p <b>set on the power supply</b> (not the measured current)</td><td><code>2App</code>, <code>2Ap-p</code>, <code>1p5App</code>, <code>500mApp</code></td></tr>
+<tr><td><code>#turns</code></td><td>Number of turns of the AMF coil</td><td><code>500turns</code>, <code>200turn</code>, <code>coil500</code>, <code>coil-200</code></td></tr>
+<tr><td><code>#mTpk</code> / <code>#mTrms</code></td><td>Measured magnetic field and how it was measured: peak, rms or peak-to-peak. The column
+<code>amf_b_peak_mT</code> converts it to the peak value (rms × √2, peak-to-peak ÷ 2, sinusoidal field); without pk/rms it stays empty.</td><td><code>40mTpk</code>, <code>40mTpeak</code>, <code>28mTrms</code>, <code>28mT-rms</code>, <code>80mTpp</code>, <code>400uTrms</code></td></tr>
 <tr><td><code>Collagen_#mgml</code></td><td>Collagen concentration</td><td><code>Collagen_3mgml</code>, <code>Collagen_2.5mgml</code>, <code>Collagen_2p5mgml</code></td></tr>
 <tr><td><code>NC_#nM</code></td><td>Theoretical local nanocage concentration</td><td><code>NC_0.5nM</code>, <code>NC0.5nM</code>, <code>NCs_500pM</code>, <code>NC_2uM</code></td></tr>
 <tr><td><code>premixed</code></td><td>NCs mixed into the collagen before gelation</td><td><code>premixed</code>, <code>premix</code>, <code>pre-mixed</code></td></tr>
@@ -310,6 +318,10 @@ for Prism, Origin or Excel. The toolbar above the graph zooms, pans and resets t
 file name, all settings (<code>set_…</code>, <code>file_…</code>), file metadata (<code>meta_…</code>: laser, detector, objective, pinhole…) and per-image
 metadata (<code>slice_…</code>). Sheet <b>per file</b>: mean and SD per file. Sheet <b>settings</b>: every parameter with a description.</td></tr>
 <tr><td><code>summary.xlsx</code></td><td>(several folders) all rows of all folders with <code>folder</code> / <code>results_folder</code> columns, plus a <b>folders</b> overview sheet.</td></tr>
+<tr><td><code>mmddyy_summary.xlsx</code>, sheet <b>quality</b></td><td>One row per file: QC status (ok / check), the reasons, the
+trained model's probability (if used) and the numbers behind them (Section 14).</td></tr>
+<tr><td><code>mmddyy_tiles.csv</code></td><td>Per-tile table: the metrics of every tile (default 13 µm) of every analysed image, with its
+position and a dark / blurred flag (Section 14).</td></tr>
 <tr><td><code>mmddyy_distributions.npz</code></td><td>Histograms behind the distribution graphs; used by Results &amp; Plots.</td></tr>
 <tr><td><code>sample_mmddyy_##.png</code></td><td>Before vs after comparison of one sample.</td></tr>
 <tr><td><code>mmddyy_fiber_density.png</code> etc.</td><td>Per-date figures, one panel per sample.</td></tr>
@@ -370,7 +382,92 @@ variation with depth, not uncertainty of the sample mean. Use several gels/field
 <p>Run <code>python3 collagen_core.py --help</code> for all options. New options used by the app: <code>--files-from</code> (list of files),
 <code>--results-root</code> (results location), <code>--figures</code> (which figures), <code>--fig-format</code>, <code>--dpi</code> and
 <code>--metadata</code> (a JSON file with values typed by hand and added parameters).
-<b>Copy command line</b> on the Run page writes the command matching your current settings.</p>
+<b>Copy command line</b> on the Run page writes the command matching your current settings.
+<code>--no-tiles</code> skips the per-tile table; <code>--qc-model FILE</code> applies a trained quality-check model.</p>
 
+<h2 id="qc" class="newpage"><a name="qc"></a>14. Quality check and the per-tile table</h2>
+<p>Every run checks each file and writes the result to the <b>quality</b> sheet, the <b>QC</b> column on the Data page
+(<i>ok</i> or <i>⚠ check</i>; hover for the reasons), warnings in the Run log and a ⚠ in the Results &amp; Plots file list.
+<b>Untick QC ‘check’</b> on the Data page leaves those files out of the next run.</p>
+<table>
+<tr><th>Built-in check</th><th>Flagged when</th></tr>
+<tr><td>Blur / focus</td><td>median sharpness (variance of the Laplacian) below 0.5 × the median of the files in the folder</td></tr>
+<tr><td>Uneven edges (drying)</td><td>brightness of the outer band vs the centre outside 0.67–1.5</td></tr>
+<tr><td>Saturation</td><td>more than 0.5 % of the pixels of an image at the maximum value</td></tr>
+<tr><td>Threshold sensitivity</td><td>the fiber area changes by more than 60 % when the threshold moves ±10 %</td></tr>
+<tr><td>Dark or blurred tiles</td><td>more than 20 % of the tiles below 0.4 × the image's median tile brightness or sharpness</td></tr>
+<tr><td>Other</td><td>fiber area below 1 %; less than half of the image analysed; reflectance below 0.4 × the folder median;
+z-stacks: fibers in fewer than 30 % of the images</td></tr>
+</table>
+<p>The limits are first guesses: check them against files you know. Blur and brightness are compared with the other files of
+the same folder, so a folder of only one or two files cannot be judged on those.</p>
+<h3>Training your own model (Quality check page)</h3>
+<p>Load the summary spreadsheets of earlier runs. Each file gets a label from the note in its name (<code>_other-dried-edges_</code>,
+<code>_other-bubble_</code>, <code>_other-blurry_</code>… mean <i>problem</i>; anything else <i>ok</i>); change any label, or set
+<i>skip</i>. <b>Train model</b> fits a random forest to the quality numbers and reports its cross-validated accuracy and the
+numbers it relies on most; red entries in the last column are files where it disagrees with your label (worth a second look).
+<b>Save model…</b> stores it and switches it on for new runs (Outputs page). Aim for at least 10 problem and 10 ok files.
+Only open model files you made yourself.</p>
+<h3>Per-tile table</h3>
+<p><code>mmddyy_tiles.csv</code> has one row per tile: file, image (t, z), conditions, tile position (<code>x_um</code>, <code>y_um</code>),
+fiber area fraction, length density, pore and fiber size, order parameter S, mean angle, coherency, reflectance, sharpness and
+a <code>tile_flag</code> (dark / blurred). It is the input for finding local remodeling patterns (clustering) and can be opened in
+Excel, Prism or Python. Tiles less than 80 % inside the analysed area (image edge, hotspot) are left out. Switch it off on
+the Outputs page.</p>
+
+<h2 id="planner" class="newpage"><a name="planner"></a>15. Experiment Planner</h2>
+<p>The planner learns how your settings (AMF frequency, time, voltage, NC concentration, premixed / incubated, incubation time,
+collagen) change one structure metric, and suggests which conditions to test next — so that fewer gels are needed than for a
+full grid. Results of each run are added automatically; older results can be loaded like on Results &amp; Plots.</p>
+<p><b>Experiments.</b> Each After-AMF file is paired with the Before-AMF file(s) of the same sample (same <code>mmddyy_##_</code>,
+same results folder); the response is <i>after − before</i> or the <i>% change</i> of the chosen metric (file means). Pairing
+within a sample removes most of the gel-to-gel variation. Files the quality check marked <i>check</i> are left out (untick to
+keep them). The <b>Experiments</b> tab lists what was used.</p>
+<p><b>Settings to optimise.</b> Tick the settings that differ between experiments (ticked automatically when they vary in the
+data). <i>From</i>–<i>To</i> is the range in which suggestions may fall: widen it to the instrument's limits to explore.
+Suggestions are rounded to <i>Step</i>. <i>Log</i> treats equal ratios as equal steps (100→200 Hz like 500→1000 Hz).</p>
+<p><b>Fit model and suggest.</b> A Gaussian process (a smooth curve-fitting method that also gives its own uncertainty) is fitted
+to the experiments, and <i>expected improvement</i> picks the next experiments: points that are probably better than the best
+so far, or still very uncertain. Several suggestions are spread out so that one batch explores different places. The
+<b>Plan</b> tab gives each suggestion with its predicted response (± 1 SD) and a file name in the app's naming scheme;
+<b>Export plan (CSV)</b> saves it. <b>Response map</b> shows the prediction and its uncertainty over two settings;
+<b>Effects</b> shows each setting on its own and how relevant it is; <b>Model check</b> predicts each experiment from all the
+others (leave-one-out) — if R² there is low, trust the uncertainty more than the map.</p>
+<p><b>Starting design.</b> With fewer than about 6 experiments, make a starting design: experiments spread evenly over the
+ranges (Latin hypercube). Then repeat: run the suggested experiments, analyse them, fit again. Include replicates of a few
+conditions so that the model can estimate the noise, and keep controls (AMF without NCs, NCs without AMF) in the same runs.</p>
+<h2 id="patterns" class="newpage"><a name="patterns"></a>16. Patterns (tile types)</h2>
+<p>Remodeling may be local — near the nanocages, or in one part of the gel — so an image-wide average can hide it. The
+Patterns page groups all tiles of all images into a few <b>tile types</b> using only their structure numbers (it is not told
+which file is before or after AMF), then shows how the share of each type changes after AMF and where the types sit.</p>
+<p><b>1. Tiles.</b> The tile tables (<code>mmddyy_tiles.csv</code>) of each run are added automatically; older ones can be loaded.
+Dark or blurred tiles and files marked <i>check</i> are left out by default.</p>
+<p><b>2. What describes a tile.</b> Default: fiber density, fiber length density, pore size, fiber thickness, alignment S and
+coherency. Reflectance depends on laser power and gain — include it only when those were identical. Size-like numbers are
+log-transformed, and all numbers are standardised so that each counts equally.</p>
+<p><b>3. Group the tiles.</b> A Gaussian mixture (or k-means) finds <i>k</i> types; <b>Suggest k</b> compares k = 2–8 by BIC
+(lower = better). Prefer a small k you can interpret when the BIC curve is flat.</p>
+<p><b>Results.</b> <i>Tile types</i>: how each type differs from the average tile (in SD units) and an automatic name such as
+“aligned, sparse”. <i>Before vs after</i>: the share of each type per file, and the change after AMF per sample (percentage
+points) — use samples, not tiles, as replicates for statistics. <i>Tile map</i>: the types at their positions in an image, before
+and after side by side. <i>Tile space</i>: every tile as a dot (PCA or t-SNE), coloured by type, condition, sample or depth.
+<b>Export results (Excel)</b> saves the types, shares, changes and every tile with its type.</p>
+<h2 id="fibermodel" class="newpage"><a name="fibermodel"></a>17. Fiber model (trained fiber mask)</h2>
+<p>Normally a pixel is fiber when its ridge-filter score is above a threshold (Otsu or fixed). Where that fails — faint
+fibers, uneven brightness, nanocage aggregates or other bright blobs that are not fibers — a <b>trained fiber model</b> can
+do better: a random-forest pixel classifier that learns from strokes you paint, from several filter responses of the
+flattened image (smoothed intensity, Hessian ridge/blob shape, edges, local contrast) at scales of 0.1–1.6 µm.</p>
+<p><b>Paint.</b> On the Fiber model page load an image (files ticked on the Data page, any image of a stack), choose
+<i>Fiber</i> [F] or <i>Background</i> [B] and paint thin strokes: along the middle of clear fibers, in the gaps, and on the
+hard places. Wheel = zoom, right-drag = move, Ctrl+Z = undo, [ and ] = brush size. Paint several images: different
+samples, depths, before and after AMF. Strokes are kept between sessions (Save / Load strokes to share them).</p>
+<p><b>Train and check.</b> <i>Train on all painted images</i> fits the model (seconds). Show the <i>model mask</i> (green)
+and compare with the <i>ridge + Otsu mask</i> (yellow); move the cutoff. Paint corrections where the model is wrong and
+train again. The out-of-bag accuracy is measured on the painted pixels only — judge the mask on images you did not paint.</p>
+<p><b>Use.</b> <i>Save model and use it</i> stores the model and selects <b>Trained fiber model</b> on the Parameters page
+(Fiber threshold), with the cutoff you chose; the preview there then shows the model mask. Every metric is computed from this
+mask as before. The settings sheet records the model and the ±10 % QC columns move the cutoff. Analyse every file you
+compare with the same model, and keep the background flattening setting the model was trained with. A model takes about
+3 s more per 1024 × 1024 image.</p>
 </body>
 </html>

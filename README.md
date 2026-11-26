@@ -54,6 +54,32 @@ Work through the pages on the left of the window:
 
    You can save the figure and export the plotted data as CSV.
 
+### Quality check (new)
+
+Every run now checks each file for blur, uneven (dried) edges, saturation, dark tiles and threshold sensitivity. The
+results go to a **quality** sheet in the summary spreadsheet, a **QC** column on the Data page and warnings in the log.
+On the **Quality check** page you can train a model on your own labelled files (a note like `_other-dried-edges_` in the
+file name marks a problem) and apply it to new runs. Each run also writes **mmddyy_tiles.csv**, the metrics of every
+13 µm tile, for finding local patterns. See section 14 of the manual.
+
+### Patterns (new)
+
+The **Patterns** page clusters the per-tile table into structure types (Gaussian mixture or k-means on standardised tile
+metrics), names them ("aligned, sparse", …), and shows how their share changes after AMF per sample, where they sit in the
+image (tile maps, before and after side by side) and how the tiles spread (PCA / t-SNE). See section 16.
+
+### Fiber model (new)
+
+On the **Fiber model** page you paint a few fiber / background strokes on some images, train a pixel classifier
+(random forest on multi-scale filter responses) and check its mask against the ridge + Otsu mask. Saved, it replaces the
+ridge threshold for new runs (Parameters page → Fiber threshold → Trained fiber model). See section 17.
+
+### Experiment Planner (new)
+
+The **Experiment Planner** page pairs each After-AMF file with its sample's Before-AMF file, models how the AMF and
+nanocage settings change a metric you choose (e.g. alignment S), and suggests the next conditions to test (Gaussian
+process + expected improvement), with ready-made file names. It also makes a space-filling starting design. See section 15.
+
 The full **user manual** is in the app (**Help** page) and in [`docs/User_Manual.pdf`](docs/User_Manual.pdf).
 
 ### File names
@@ -61,7 +87,7 @@ The full **user manual** is in the app (**Help** page) and in [`docs/User_Manual
 The app reads the experimental conditions from the file names, for example:
 
 ```
-112026_3_Collagen_3mgml_NC_0.5nM_inc45min_other-dried-edges_z_AMF_500Hz_3min_10Vpp_8.5V_1013.nd2
+112026_3_Collagen_3mgml_NC_0.5nM_inc45min_other-dried-edges_z_AMF_500Hz_3min_10Vpp_8.5V_2App_500turns_40mTpk_1013.nd2
 ```
 
 | Part | Meaning |
@@ -69,6 +95,8 @@ The app reads the experimental conditions from the file names, for example:
 | `mmddyy_##_` (start, required) | date and sample number; files with the same start are compared before vs after |
 | `AMF` | marks the After-AMF file |
 | `500Hz`, `3min`, `10Vpp`, `8.5V` | AMF frequency, time, Vp-p set on the instrument, measured voltage |
+| `2App`, `500turns` | AMF current Ap-p set on the power supply (not the measured current), coil turns (e.g. 200 or 500) |
+| `40mTpk` / `28mTrms` | measured magnetic field, peak or rms (also `mTpp`); converted to a peak value in `amf_b_peak_mT` |
 | `Collagen_3mgml` | collagen concentration |
 | `NC_0.5nM` | theoretical local nanocage concentration |
 | `premixed` / `inc45min` | NCs mixed in before gelation / incubated on the gel for that time |

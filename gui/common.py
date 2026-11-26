@@ -79,6 +79,7 @@ def parse_file_name(path, after_pattern="AMF"):
              condition="After AMF" if after else "Before AMF")
     hz, sec = core.parse_amf(name) if after else (None, None)
     vpp, vm = core.parse_amf_voltage(name) if after else (None, None)
+    d.update(core.parse_amf_coil(name) if after else dict(amf_app=None, coil_turns=None, amf_b=None, amf_b_type=None))
     d.update(amf_hz=hz, amf_s=sec, amf_vpp=vpp, amf_v=vm, collagen_mgml=core.parse_collagen(name),
              nc_nM=core.parse_nc(name), other=core.parse_other(name))
     d["mixing"], d["inc_s"] = core.parse_mixing(name)
@@ -163,6 +164,10 @@ STD_FIELDS = [
     ("amf_min", "AMF time", "min", "num", None, "amf_s", 60.0),
     ("amf_vpp", "Vp-p set", "V", "num", None, "amf_vpp", 1.0),
     ("amf_v", "V meas.", "V", "num", None, "amf_v", 1.0),
+    ("amf_app", "Ap-p set", "A", "num", None, "amf_app", 1.0),
+    ("coil_turns", "Coil", "turns", "num", None, "coil_turns", 1.0),
+    ("amf_b", "B field", "mT", "num", None, "amf_b", 1.0),
+    ("amf_b_type", "B as", "", "choice", ["", "peak", "rms", "peak-to-peak"], "amf_b_type", None),
     ("collagen_mgml", "Collagen", "mg/mL", "num", None, "collagen_mgml", 1.0),
     ("nc_nM", "NC conc.", "nM", "num", None, "nc_nM", 1.0),
     ("mixing", "NC mixing", "", "choice", ["", "premixed", "incubated", "premixed + incubated"], "mixing", None),
@@ -173,6 +178,10 @@ FIELD_TIPS = {
     "condition": "Before AMF / After AMF (from ‘AMF’ in the name)",
     "amf_hz": "AMF frequency (name: 500Hz, 1kHz)", "amf_min": "AMF exposure time in minutes (name: 3min, 90s)",
     "amf_vpp": "Vp-p set on the instrument (name: 10Vpp)", "amf_v": "Measured AMF voltage (name: 8.5V)",
+    "amf_app": "Current Ap-p set on the power supply, not the measured current (name: 2App)",
+    "coil_turns": "Number of turns of the AMF coil (name: 500turns or coil500)",
+    "amf_b": "Measured magnetic field in mT (name: 40mTpk, 28mTrms; also µT/T)",
+    "amf_b_type": "How the field was measured: peak, rms or peak-to-peak (name: …mTpk / …mTrms / …mTpp)",
     "collagen_mgml": "Collagen concentration (name: Collagen_3mgml)",
     "nc_nM": "Theoretical local nanocage concentration in nM (name: NC_0.5nM)",
     "mixing": "premixed / incubated (name: premixed, inc45min)", "inc_min": "NC incubation time in minutes (name: inc45min)",

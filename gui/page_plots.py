@@ -50,11 +50,16 @@ PARAM_X = [  # column, label, scale
     ("amf_time_s", "AMF exposure (min)", 1 / 60),
     ("amf_vpp_set", "AMF Vp-p set (V)", 1.0),
     ("amf_v_measured", "AMF measured voltage (V)", 1.0),
+    ("amf_app_set", "AMF Ap-p set (A)", 1.0),
+    ("amf_coil_turns", "Coil turns", 1.0),
+    ("amf_b_peak_mT", "Magnetic field, peak (mT)", 1.0),
+    ("amf_ampere_turns_pp", "Ap-p × turns", 1.0),
     ("nc_incubation_time_s", "NC incubation time (min)", 1 / 60),
 ]
 COLOR_BY = [("condition", "Before / after AMF"), ("file", "Each file its own color"), ("sample", "Sample"),
             ("nc_conc_nM", "NC concentration"), ("nc_mixing", "NC mixing"), ("collagen_mg_ml", "Collagen"),
-            ("amf_freq_hz", "AMF frequency"), ("amf_time_s", "AMF time"), ("date", "Date")]
+            ("amf_freq_hz", "AMF frequency"), ("amf_time_s", "AMF time"), ("amf_coil_turns", "Coil"),
+            ("amf_b_peak_mT", "Magnetic field"), ("date", "Date")]
 GROUP_BY = [("sample", "Sample"), ("date", "Date"), ("condition", "Condition"), ("nc_conc_nM", "NC concentration"),
             ("nc_mixing", "NC mixing"), ("collagen_mg_ml", "Collagen"), ("amf_freq_hz", "AMF frequency")]
 LABELS = [("cond", "Condition + AMF + file no."), ("sample_cond", "Sample + condition"), ("file", "Full file name"),
@@ -411,6 +416,10 @@ class PlotsPage(Page):
                                       str(r.get("series", ""))])
                 it.setData(0, Qt.UserRole, u)
                 it.setToolTip(0, u)
+                if str(r.get("qc_status")) == "check":           # flagged by the quality check
+                    it.setText(0, "⚠ " + u)
+                    it.setForeground(0, QColor(style.WARN))
+                    it.setToolTip(0, f"{u}\nQuality check: {r.get('qc_flags')}")
                 it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
                 it.setCheckState(0, Qt.Checked if (old is None or u in old) else Qt.Unchecked)
                 it.setForeground(1, QColor(style.AFTER if r["condition"] == "After AMF" else style.BEFORE))
@@ -544,7 +553,11 @@ class PlotsPage(Page):
         parts = [f"{r['amf_freq_hz']:g} Hz" if pd.notna(r.get("amf_freq_hz")) else None,
                  r.get("amf_time") if isinstance(r.get("amf_time"), str) else None,
                  f"{r['amf_vpp_set']:g} Vpp" if pd.notna(r.get("amf_vpp_set")) else None,
-                 f"{r['amf_v_measured']:g} V" if pd.notna(r.get("amf_v_measured")) else None]
+                 f"{r['amf_v_measured']:g} V" if pd.notna(r.get("amf_v_measured")) else None,
+                 f"{r['amf_app_set']:g} App" if pd.notna(r.get("amf_app_set")) else None,
+                 f"{r['amf_coil_turns']:g} turns" if pd.notna(r.get("amf_coil_turns")) else None,
+                 (f"{r['amf_b_mT']:g} mT {r.get('amf_b_type') if isinstance(r.get('amf_b_type'), str) else ''}".strip()
+                  if pd.notna(r.get("amf_b_mT")) else None)]
         p = ", ".join(x for x in parts if x)
         return "After AMF" + (f", {p}" if p else "")
 

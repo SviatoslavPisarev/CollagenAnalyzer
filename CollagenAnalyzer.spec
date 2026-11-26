@@ -10,7 +10,13 @@ datas = [("docs", "docs"), ("assets", "assets")]
 binaries = []
 hiddenimports = collect_submodules("skimage.filters") + collect_submodules("skimage.morphology") + \
     collect_submodules("skimage.feature") + ["matplotlib.backends.backend_qtagg", "matplotlib.backends.backend_agg",
-                                             "openpyxl", "collagen_core"]
+                                             "openpyxl", "collagen_core", "ml", "ml.qc", "joblib",
+                                             "sklearn.ensemble", "sklearn.impute", "sklearn.pipeline",
+                                             "sklearn.model_selection", "sklearn.metrics",
+                                             "sklearn.gaussian_process", "scipy.stats", "ml.planner",
+                                             "ml.patterns", "sklearn.mixture", "sklearn.cluster",
+                                             "sklearn.manifold", "sklearn.decomposition",
+                                             "ml.fibermodel"]
 for pkg in ("nd2", "ome_types", "resource_backed_dask_array", "tifffile", "imagecodecs"):
     try:
         d, b, h = collect_all(pkg)
@@ -19,7 +25,7 @@ for pkg in ("nd2", "ome_types", "resource_backed_dask_array", "tifffile", "image
         pass
 
 a = Analysis(["CollagenAnalyzer.py"], pathex=["."], binaries=binaries, datas=datas, hiddenimports=hiddenimports,
-             excludes=["tkinter", "PyQt5", "PyQt6", "PySide2", "IPython", "jupyter", "pytest", "sklearn",
+             excludes=["tkinter", "PyQt5", "PyQt6", "PySide2", "IPython", "jupyter", "pytest",
                        "cryptography", "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets", "PySide6.QtQml",
                        "PySide6.QtQuick", "PySide6.Qt3DCore", "PySide6.QtMultimedia", "PySide6.QtCharts",
                        "PySide6.QtDataVisualization", "PySide6.QtPdf", "PySide6.QtSql", "PySide6.QtTest"], noarchive=False)
