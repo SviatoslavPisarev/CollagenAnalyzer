@@ -10,7 +10,7 @@ datas = [("docs", "docs"), ("assets", "assets")]
 binaries = []
 hiddenimports = collect_submodules("skimage.filters") + collect_submodules("skimage.morphology") + \
     collect_submodules("skimage.feature") + ["matplotlib.backends.backend_qtagg", "matplotlib.backends.backend_agg",
-                                             "openpyxl", "collagen_core", "ml", "ml.qc", "joblib",
+                                             "openpyxl", "collagen_core", "cloudfiles", "ml", "ml.qc", "joblib",
                                              "sklearn.ensemble", "sklearn.impute", "sklearn.pipeline",
                                              "sklearn.model_selection", "sklearn.metrics",
                                              "sklearn.gaussian_process", "scipy.stats", "ml.planner",

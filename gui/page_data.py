@@ -558,6 +558,13 @@ class DataPage(Page):
 
     def _fill_header(self, i, h):
         was = self.table.blockSignals(True)
+        if h.get("cloud"):
+            self.table.item(i, self.col_type).setText("in iCloud")
+            self.table.item(i, self.col_type).setToolTip("Not downloaded to this computer yet. The analysis "
+                                                         "downloads it when its folder is analysed.")
+            self.table.item(i, self.col_px).setText("")
+            self.table.blockSignals(was)
+            return
         self.table.item(i, self.col_type).setText(kind_text(h) if "error" not in h else "cannot read")
         px = h.get("px")
         self.table.item(i, self.col_px).setText(f"{px:.4f}" if px else ("—" if "error" not in h else ""))
@@ -681,7 +688,7 @@ class DataPage(Page):
         tot, known = 0, True
         for p in self.selected_files():
             h = self.headers.get(p)
-            if not h or "error" in h:
+            if not h or "error" in h or h.get("cloud"):
                 known = False
                 continue
             nt, nz = h.get("nt", 1), h.get("nz", 1)
