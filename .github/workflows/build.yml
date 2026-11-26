@@ -15,7 +15,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14            # Apple Silicon (M1/M2/M3/M4)
+          - os: macos-latest        # Apple Silicon (M1/M2/M3/M4)
             name: mac-apple-silicon
           - os: macos-15-intel      # Intel Macs (if GitHub no longer offers this computer, only this job fails)
             name: mac-intel
