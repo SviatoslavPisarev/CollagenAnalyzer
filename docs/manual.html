@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Collagen Reflectance Analyzer — User Manual</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif; color: #1d2733; font-size: 11pt; line-height: 1.45; }
+  h1 { color: #155e6c; font-size: 22pt; margin-bottom: 2px; }
+  h2 { color: #155e6c; font-size: 15pt; margin-top: 26px; border-bottom: 2px solid #1f7a8c; padding-bottom: 3px; }
+  h3 { color: #1d2733; font-size: 12pt; margin-top: 18px; }
+  p.sub { color: #6b7785; margin-top: 0; }
+  table { border-collapse: collapse; margin: 6px 0 12px 0; }
+  th { background: #e3f1f4; color: #155e6c; text-align: left; padding: 5px 8px; border: 1px solid #c9d8dd; }
+  td { padding: 5px 8px; border: 1px solid #dde3e8; vertical-align: top; }
+  code { font-family: Menlo, Consolas, monospace; background: #f0f3f5; font-size: 10pt; }
+  .tip { background: #e9f5ec; border-left: 4px solid #2e7d32; padding: 7px 10px; margin: 8px 0; }
+  .warn { background: #fff6e5; border-left: 4px solid #e0a800; padding: 7px 10px; margin: 8px 0; }
+  .shot { border: 1px solid #dde3e8; margin: 6px 0 4px 0; }
+  .cap { color: #6b7785; font-size: 9.5pt; margin-top: 0; }
+  .toc a { color: #1f7a8c; text-decoration: none; }
+  @media print {
+    body { font-size: 10pt; }
+    img.shot { width: 100% !important; height: auto !important; }
+    h2 { page-break-before: auto; }
+    h2.newpage { page-break-before: always; }
+    table, .tip, .warn, img { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Collagen Reflectance Analyzer</h1>
+<p class="sub">User manual · version 1.0 · Matsui Lab, Hunter College (CUNY)</p>
+
+<p>The app measures the structure of collagen hydrogels in confocal <b>reflectance</b> images (.nd2 from the Nikon A1, or
+.tif): fiber density, pore size, fiber thickness and length, alignment and patchiness. It compares files before and after
+AMF treatment, across samples and across experiments, and makes publication-ready figures and spreadsheets.</p>
+
+<div class="toc">
+<p><b>Contents</b><br>
+<a href="#install">1. Installing and starting the app</a><br>
+<a href="#quick">2. Quick start (5 steps)</a><br>
+<a href="#names">3. Naming your files</a><br>
+<a href="#data">4. Page 1 · Data</a><br>
+<a href="#params">5. Page 2 · Parameters and preview</a><br>
+<a href="#outputs">6. Page 3 · Outputs</a><br>
+<a href="#run">7. Page 4 · Run</a><br>
+<a href="#plots">8. Results &amp; Plots: your own graphs</a><br>
+<a href="#results">9. What the results contain</a><br>
+<a href="#metrics">10. What the numbers mean</a><br>
+<a href="#good">11. Good practice for comparisons</a><br>
+<a href="#trouble">12. Troubleshooting</a><br>
+<a href="#cli">13. Command line (optional)</a></p>
+</div>
+
+<h2 id="install"><a name="install"></a>1. Installing and starting the app</h2>
+
+<p>There are two ways to run the app. Both give exactly the same app.</p>
+<table>
+<tr><th>Way</th><th>Needs</th><th>Best for</th></tr>
+<tr><td><b>A. Standalone app</b><br>(<code>Collagen Analyzer.app</code> / <code>CollagenAnalyzer.exe</code>)</td>
+<td>Nothing — Python is built in</td><td>Everyday use; lab computers; sharing with lab members</td></tr>
+<tr><td><b>B. Launcher</b><br>(<code>Start_Mac.command</code> / <code>Start_Windows.bat</code>)</td>
+<td>Python 3.9 or newer (free, python.org)</td><td>Running from the app folder; always the newest code</td></tr>
+</table>
+
+<h3>A. Standalone app</h3>
+<p><b>Getting it.</b> The standalone app is built for free on GitHub (Mac and Windows computers there build it). Once:</p>
+<ol>
+<li>Create a GitHub repository (e.g. <code>collagen-analyzer</code>, private is fine) and upload the whole app folder,
+including the hidden <code>.github</code> folder. (On GitHub: <i>Add file → Upload files</i>, drag the folder contents in.
+On a Mac, press <b>Cmd + Shift + .</b> in Finder to see hidden folders.)</li>
+<li>Open the repository's <b>Actions</b> tab → <b>Build app</b> → <b>Run workflow</b>. It takes about 10–15 minutes.</li>
+<li>Open the finished run and download from <b>Artifacts</b>: <code>CollagenAnalyzer-mac-apple-silicon</code> (M1/M2/M3/M4 Macs),
+<code>CollagenAnalyzer-mac-intel</code> (older Macs) or <code>CollagenAnalyzer-windows</code>.</li>
+</ol>
+<p><b>Mac:</b> unzip and drag <b>Collagen Analyzer.app</b> to Applications. The app is not signed by Apple, so the first time
+<b>right-click (or Control-click) the app → Open → Open</b>. If macOS says the app “is damaged”, open Terminal and run
+<code>xattr -dr com.apple.quarantine "/Applications/Collagen Analyzer.app"</code>, then open it normally.</p>
+<p><b>Windows:</b> unzip the folder anywhere (e.g. Documents) and double-click <b>CollagenAnalyzer.exe</b> inside it (keep the
+<code>_internal</code> folder next to it). If Windows SmartScreen appears: <b>More info → Run anyway</b>. Right-click the .exe →
+<i>Send to → Desktop (create shortcut)</i> for a desktop icon.</p>
+
+<h3>B. Launcher (Python needed)</h3>
+<ol>
+<li>Install Python 3.11 or 3.12 from <a href="https://www.python.org/downloads/">python.org</a>.
+On Windows tick <b>“Add python.exe to PATH”</b> in the installer.</li>
+<li><b>Mac:</b> double-click <code>Start_Mac.command</code>. The first time, macOS may refuse to open it: right-click → Open → Open.
+<b>Windows:</b> double-click <code>Start_Windows.bat</code>.</li>
+<li>The first start installs the needed packages (2–5 minutes, internet needed; a terminal window shows the progress).
+Later starts take a few seconds.</li>
+</ol>
+<div class="tip">The launchers keep the Python packages outside the app folder (Mac: <code>~/Library/Application Support/CollagenAnalyzer</code>;
+Windows: <code>%LOCALAPPDATA%\CollagenAnalyzer</code>), so the app folder can stay in iCloud Drive / OneDrive. To force a clean
+reinstall of the packages, delete that folder and start again.</div>
+
+<h2 id="quick"><a name="quick"></a>2. Quick start (5 steps)</h2>
+<ol>
+<li><b>Data</b> — choose <i>One folder</i> and pick the folder with your .nd2 files (or drag the folder onto the window).
+Check the table: date, sample, Before/After AMF and the conditions read from each file name.</li>
+<li><b>Parameters</b> — keep the defaults. Optional but recommended: pick a file in the preview, click <b>Load</b> and check that the
+red fiber mask follows the fibers. For a first, fast look set <i>Analyse every Nth z-slice</i> to 4.</li>
+<li><b>Outputs</b> — keep “Next to the data” and all figures.</li>
+<li><b>Run</b> — click <b>Start analysis</b>. Progress and messages appear live.</li>
+<li>When it finishes: <b>Open results folder</b>, or <b>Make custom plots</b> to build your own comparison graphs.</li>
+</ol>
+<p>The app remembers all settings and the last folders between sessions.</p>
+
+<h2 id="names" class="newpage"><a name="names"></a>3. Naming your files</h2>
+<p>The app reads the experimental conditions from the file names. Parts are separated by underscores and can be in any order
+after the first two; parts that are missing are simply left empty.</p>
+<p>Example: <code>112026_3_Collagen_3mgml_NC_0.5nM_inc45min_other-dried-edges_z_AMF_500Hz_3min_10Vpp_8.5V_1013.nd2</code></p>
+<table>
+<tr><th>Part of the name</th><th>Meaning</th><th>Accepted forms</th></tr>
+<tr><td><code>mmddyy_##_</code> (start, required)</td><td>Date and sample number. Files with the same start are one sample and are compared before vs after.</td><td><code>112026_3_</code></td></tr>
+<tr><td><code>AMF</code></td><td>Marks the <b>After AMF</b> file; files without it are <b>Before AMF</b> (the word can be changed on the Parameters page)</td><td><code>_AMF_</code></td></tr>
+<tr><td><code>###Hz</code></td><td>AMF frequency</td><td><code>500Hz</code>, <code>1kHz</code>, <code>1.5kHz</code></td></tr>
+<tr><td>time</td><td>AMF exposure time</td><td><code>3min</code>, <code>1.5min</code>, <code>3min30s</code>, <code>3m30s</code>, <code>90s</code></td></tr>
+<tr><td><code>#Vpp</code></td><td>AMF Vp-p set on the instrument</td><td><code>10Vpp</code>, <code>10Vp-p</code>, <code>10Vpk-pk</code>, <code>2p5Vpp</code>, <code>500mVpp</code></td></tr>
+<tr><td><code>#V</code></td><td>Measured AMF voltage</td><td><code>8.5V</code>, <code>8p5V</code>, <code>850mV</code></td></tr>
+<tr><td><code>Collagen_#mgml</code></td><td>Collagen concentration</td><td><code>Collagen_3mgml</code>, <code>Collagen_2.5mgml</code>, <code>Collagen_2p5mgml</code></td></tr>
+<tr><td><code>NC_#nM</code></td><td>Theoretical local nanocage concentration</td><td><code>NC_0.5nM</code>, <code>NC0.5nM</code>, <code>NCs_500pM</code>, <code>NC_2uM</code></td></tr>
+<tr><td><code>premixed</code></td><td>NCs mixed into the collagen before gelation</td><td><code>premixed</code>, <code>premix</code>, <code>pre-mixed</code></td></tr>
+<tr><td><code>inc45min</code></td><td>NCs incubated on the polymerized gel for that time</td><td><code>inc45min</code>, <code>incubated_45min</code>, <code>incub_1h30min</code>, <code>inc1.5h</code></td></tr>
+<tr><td><code>other-…</code></td><td>Free note (use hyphens inside it); not read for anything else</td><td><code>other-dried-edges</code>, <code>other_rep2</code></td></tr>
+<tr><td>last part</td><td>File number shown in legends</td><td><code>..._1013</code> → “(1013)”</td></tr>
+</table>
+<div class="tip">The Data page shows what was read from every name before you run — check it there. Text in the <code>other-</code> note
+is ignored, so <code>other-noAMFcontrol</code> does not make a file “After AMF”.</div>
+
+<h2 id="data" class="newpage"><a name="data"></a>4. Page 1 · Data</h2>
+<img class="shot" src="img/data.png" width="880">
+<p class="cap">Data page with two folders. Before/After AMF is colored blue/orange; red dates mean the name does not start with mmddyy_##_.</p>
+<p><b>Choose a mode</b> with the three cards:</p>
+<table>
+<tr><th>Mode</th><th>What it does</th><th>Results</th></tr>
+<tr><td>One file</td><td>A detailed report of a single file</td><td><code>mmddyy_results/&lt;file&gt;/</code>: a figure of every analysed image, slice comparisons, spreadsheet</td></tr>
+<tr><td>One folder</td><td>All files of a folder (or the ticked ones)</td><td><code>mmddyy_results/</code> in the folder: per-file folders, sample and per-date comparisons, <code>mmddyy_summary.xlsx</code></td></tr>
+<tr><td>Several folders</td><td>Each folder analysed on its own</td><td>As above in each folder, plus one <code>summary.xlsx</code> combining all folders</td></tr>
+</table>
+<ul>
+<li><b>Choose folder… / Add folder…</b> — or drag files and folders from Finder / Explorer onto the window.</li>
+<li><b>Tick / untick</b> files in the first column to include or skip them. <i>Tick all / Untick all</i> act on the rows shown;
+the filter box finds files by any text in the table (e.g. <code>AMF</code>, <code>0.5 nM</code>, <code>premixed</code>).</li>
+<li><b>Type</b> and <b>Pixel</b> are read from each file (z-stack with number of slices, time-lapse, single image).</li>
+<li>A yellow box lists problems: names without date/sample, files that cannot be opened, TIFFs without pixel size.</li>
+</ul>
+
+<h2 id="params" class="newpage"><a name="params"></a>5. Page 2 · Parameters and preview</h2>
+<img class="shot" src="img/params.png" width="880">
+<p class="cap">Left: settings (hover any field for help). Right: preview of one image with the fiber mask, orientation and pore-size maps.</p>
+
+<h3>The preview — check before a long run</h3>
+<ol>
+<li>Pick a <b>file</b> and an <b>image</b> number (z-slice or time point, from 0), click <b>Load</b>.
+The image appears with the excluded reflection disc (yellow) and the <b>fiber mask in red</b>.</li>
+<li>Move the <b>threshold slider</b>: the mask and fiber % update instantly. A good mask covers the visible fibers without
+filling the background. <b>Use as fixed threshold</b> copies the value into the settings; <b>Back to Otsu value</b> resets the slider.</li>
+<li><b>Measure this image</b> runs the full analysis of that image (10–30 s) and shows the orientation map (color = angle) and the
+pore-size map, with all numbers below.</li>
+</ol>
+
+<h3>Fiber threshold</h3>
+<table>
+<tr><th>Option</th><th>When to use</th></tr>
+<tr><td>Automatic (Otsu), separately for each file — <i>default</i></td><td>Microscope settings (laser, gain) differ between files. Adapts to each file, but can partly hide real density differences.</td></tr>
+<tr><td>Automatic (Otsu), one threshold for all files</td><td>Same imaging settings for all files; one data-driven value for everything.</td></tr>
+<tr><td>Fixed value</td><td>The strictest before-vs-after comparison: the same value for every file. Choose it with the preview (typical 0.1–0.3; higher = stricter).</td></tr>
+</table>
+
+<h3>Reflection hotspot</h3>
+<p>The objective reflects the laser as a bright disc in the middle of reflectance images; it is excluded from the analysis.
+<i>Detect automatically</i> works for the usual centred disc. Use <i>Manual circle</i> (x, y, radius in pixels; x to the right,
+y down from the top-left corner) if the preview shows the yellow circle in the wrong place, or <i>No hotspot</i> for images without it.</p>
+
+<h3>All other parameters</h3>
+<table>
+<tr><th>Parameter</th><th>Default</th><th>What it does / when to change</th></tr>
+<tr><td>Analyse every Nth z-slice</td><td>1</td><td>1 = every slice. 4 is ~4× faster and still samples finer than the axial resolution (~0.6 µm) for 0.075 µm steps. Use 17–34 for quick tests.</td></tr>
+<tr><td>Analyse every Nth time point</td><td>1</td><td>Time-lapses only.</td></tr>
+<tr><td>Third axis of 3-D files</td><td>auto</td><td>Only for TIFFs whose third axis is not labelled: z (depth) or t (time).</td></tr>
+<tr><td>Time between time points</td><td>off</td><td>Only for files that do not store timing (some TIFFs).</td></tr>
+<tr><td>Background flattening blur</td><td>2.5 µm</td><td>Removes uneven illumination and depth attenuation. Keep clearly larger than fibers; increase (4–5) for thick bundles.</td></tr>
+<tr><td>Ridge filter scales</td><td>0.1, 0.15, 0.2 µm</td><td>Fiber half-widths the detector looks for. Add 0.3, 0.4 for thick bundles; drop 0.1 for noisy images.</td></tr>
+<tr><td>Remove specks up to</td><td>0.32 µm²</td><td>Noise removal. Raise (0.5–0.8) for grainy images.</td></tr>
+<tr><td>Orientation window</td><td>0.4 µm</td><td>Smoothing of the fiber-angle measurement.</td></tr>
+<tr><td>Excluded image border</td><td>1.6 µm</td><td>Border strip ignored (filter edge effects).</td></tr>
+<tr><td>Tile size for patchiness</td><td>13 µm</td><td>Tile size for the tile CV.</td></tr>
+<tr><td>Shortest fiber segment counted</td><td>0.5 µm</td><td>Shorter side branches are pruned before fibers are split into segments. Raise (0.8–1) if the length distribution is dominated by tiny pieces.</td></tr>
+<tr><td>Spacing of pore centres</td><td>0.5 µm</td><td>Only for the secondary pore measure (local maxima).</td></tr>
+<tr><td>Hotspot detection blur</td><td>4 µm</td><td>Blur used to find the reflection disc.</td></tr>
+<tr><td>Parallel workers</td><td>cores − 1 (max 8)</td><td>Images analysed at the same time. Lower it if the computer runs out of memory.</td></tr>
+<tr><td>After-AMF files contain</td><td>AMF</td><td>Text that marks After-AMF files in the names.</td></tr>
+<tr><td>Pixel size / Z-step</td><td>off</td><td>TIFF files only, when the file does not contain them. .nd2 files always use their own calibration.</td></tr>
+</table>
+<p><b>Presets:</b> <i>Save preset…</i> stores all parameters in a small .json file (e.g. “fixed threshold 0.19, thick fibers”);
+<i>Load preset…</i> restores them. <i>Reset to defaults</i> returns to the standard values. Every value used is also written
+to the results spreadsheet (sheet “settings”), so each run can be reproduced.</p>
+
+<h2 id="outputs" class="newpage"><a name="outputs"></a>6. Page 3 · Outputs</h2>
+<img class="shot" src="img/outputs.png" width="880">
+<ul>
+<li><b>Where to save:</b> next to the data (a folder <code>mmddyy_results</code> inside each data folder) or in a folder you choose
+(with several data folders: one sub-folder per data folder plus <code>summary.xlsx</code>). Files with the same names are overwritten —
+choose another folder to keep runs with different settings apart.</li>
+<li><b>Level of detail:</b> <i>Detailed</i> makes a folder per file with its own figures and spreadsheet; <i>Compact</i> makes only the
+comparisons and one figure per file (faster, fewer files).</li>
+<li><b>Figures:</b> tick the figures you want (table below). <i>Only comparisons</i> skips the per-file figures. The spreadsheets are always
+written; any graph can also be made later on the Results &amp; Plots page.</li>
+<li><b>Format:</b> PNG (default), PDF or SVG (vector, for papers and editing in Illustrator/Inkscape), TIFF. Resolution: default
+(90–120 dpi, fast) or e.g. 300 dpi for print.</li>
+</ul>
+<table>
+<tr><th>Figure</th><th>Shows</th></tr>
+<tr><td>Per-file figure</td><td>Two images, fiber mask, orientation map, density and pore size vs depth/time (or distributions for single images), angle rose, all numbers.</td></tr>
+<tr><td>A figure of every analysed image</td><td>For each image: image, mask, orientation, segments, pore- and fiber-size maps, all distributions and numbers (folder <code>slices/</code>).</td></tr>
+<tr><td>Slice comparison</td><td>Every metric vs depth/time, and the distributions of every image colored by depth/time.</td></tr>
+<tr><td>Sample comparison</td><td>Before vs after AMF of one sample: images, density, pore size, all distributions, angles.</td></tr>
+<tr><td>Per date (side by side)</td><td>One panel per sample: density, pore size, angle, pore-size, fiber-size and fiber-length distributions.</td></tr>
+</table>
+
+<h2 id="run" class="newpage"><a name="run"></a>7. Page 4 · Run</h2>
+<img class="shot" src="img/run_done.png" width="880">
+<ul>
+<li>The summary shows the number of files and images and the main settings. Problems (no files ticked, missing TIFF pixel size,
+no results folder) appear in yellow and must be fixed before <b>Start analysis</b> becomes available.</li>
+<li>The three steps light up in turn: <i>Reading files</i> (metadata, hotspot, threshold), <i>Analysing images</i> (the long part),
+<i>Figures &amp; spreadsheets</i>. The bar and the estimate of the remaining time refer to the current step and folder.</li>
+<li>The log shows everything the analysis reports; warnings are orange (e.g. imaging settings that differ between compared
+files, conditions that differ within a sample). <i>Save log…</i> keeps it as a text file.</li>
+<li><b>Stop</b> ends the run; files already written are kept.</li>
+<li>When finished: <b>Open results folder</b>, <b>Open summary spreadsheet</b>, or <b>Make custom plots</b>. Double-click a line in the list
+to open it. The results are loaded into Results &amp; Plots automatically.</li>
+<li><b>Copy command line</b> puts the equivalent Terminal command on the clipboard (for your notebook).</li>
+</ul>
+<div class="tip">Timing: about 5–15 s per 1024 × 1024 image per worker. A 69-slice stack with every slice takes a few minutes on a modern
+computer. Use <i>every 4th z-slice</i> for routine screening and every slice for final figures.</div>
+
+<h2 id="plots" class="newpage"><a name="plots"></a>8. Results &amp; Plots: your own graphs</h2>
+<img class="shot" src="img/plot_perfile.png" width="880">
+<p class="cap">Pore size per file, one panel per sample, every analysed image shown as a dot.</p>
+<p>This page combines <b>any files from any runs</b> in one graph. Work from top to bottom on the left; the graph updates as you change things.</p>
+<h3>1. Data</h3>
+<p><b>Load spreadsheet(s)…</b> takes <code>mmddyy_summary.xlsx</code> or the combined <code>summary.xlsx</code>; <b>Load results folder…</b>
+searches a folder and its sub-folders. Load as many as you like — results of different days are combined. After a run the new
+results are loaded automatically. <i>Clear</i> empties the list.</p>
+<h3>2. Files to plot</h3>
+<p>Files are grouped by sample. Tick the files to show; ticking a sample ticks all its files. The filter box shows only matching
+files (e.g. <code>500 Hz</code>, <code>0.5 nM</code>); <i>All / None</i> act on the files shown.</p>
+<h3>3. What to plot</h3>
+<table>
+<tr><th>Graph</th><th>Use it for</th><th>Options</th></tr>
+<tr><td>Metric vs depth / time</td><td>How a metric changes through the gel or over time; one line per file</td><td>x-axis (depth, time, image number), line style, smoothing over N images</td></tr>
+<tr><td>Metric per file</td><td>Comparing files: bars (mean ± SD/SEM), box plots, violin plots or points</td><td>Show every analysed image as a dot</td></tr>
+<tr><td>Change after AMF, per sample</td><td>(after − before) / before in % for every sample that has both</td><td>—</td></tr>
+<tr><td>Metric vs experimental parameter</td><td>Dose–response style: a metric against NC concentration, collagen, AMF frequency/time/voltage, incubation time</td><td>Points or points joined by lines (per color), log x-axis</td></tr>
+<tr><td>Distribution</td><td>Pore size, fiber size, fiber length (curves or cumulative) and fiber angle (rose plots)</td><td>Distribution curve or cumulative</td></tr>
+</table>
+<img class="shot" src="img/plot_dist.png" width="880">
+<p class="cap">Pore-size distributions, one panel per sample (same x-range in every panel).</p>
+<h3>4. Layout and labels</h3>
+<ul>
+<li><b>Panels:</b> all files on one graph; one panel per file (side by side); or one panel per group — by sample, date, condition,
+NC concentration, NC mixing, collagen or AMF frequency. <i>Panels per row</i> and <i>Same y-axis</i> control the grid.</li>
+<li><b>Colors:</b> before/after (blue/orange), each file its own color, or by sample, NC concentration, mixing, collagen, AMF
+frequency/time, date (numbers get a color scale).</li>
+<li><b>Legend labels:</b> condition + AMF settings + file number (default), sample + condition, full name, file number, or condition + NC conditions.
+<b>Legend</b> position: automatic, inside, right, below, or none.</li>
+<li><b>Title, axis labels, y range, font size, grid:</b> leave empty for automatic.</li>
+</ul>
+<h3>5. Save</h3>
+<p><b>Save figure…</b> writes PNG, PDF, SVG or TIFF at the chosen resolution; untick <i>automatic</i> size to set the width × height in
+inches (e.g. 3.5 × 2.6 in for a single journal column). <b>Export plotted data (CSV)…</b> saves exactly the numbers in the graph,
+for Prism, Origin or Excel. The toolbar above the graph zooms, pans and resets the view.</p>
+
+<h2 id="results" class="newpage"><a name="results"></a>9. What the results contain</h2>
+<table>
+<tr><th>File</th><th>Contents</th></tr>
+<tr><td><code>mmddyy_summary.xlsx</code></td><td>Sheet <b>per slice</b>: one row per analysed image of every file — all metrics, the conditions from the
+file name, all settings (<code>set_…</code>, <code>file_…</code>), file metadata (<code>meta_…</code>: laser, detector, objective, pinhole…) and per-image
+metadata (<code>slice_…</code>). Sheet <b>per file</b>: mean and SD per file. Sheet <b>settings</b>: every parameter with a description.</td></tr>
+<tr><td><code>summary.xlsx</code></td><td>(several folders) all rows of all folders with <code>folder</code> / <code>results_folder</code> columns, plus a <b>folders</b> overview sheet.</td></tr>
+<tr><td><code>mmddyy_distributions.npz</code></td><td>Histograms behind the distribution graphs; used by Results &amp; Plots.</td></tr>
+<tr><td><code>sample_mmddyy_##.png</code></td><td>Before vs after comparison of one sample.</td></tr>
+<tr><td><code>mmddyy_fiber_density.png</code> etc.</td><td>Per-date figures, one panel per sample.</td></tr>
+<tr><td><code>&lt;file name&gt;/</code></td><td>Per-file folder (detailed mode): per-file figure, slice comparison, <code>slices/</code>, the file's own spreadsheet.</td></tr>
+</table>
+
+<h2 id="metrics"><a name="metrics"></a>10. What the numbers mean</h2>
+<table>
+<tr><th>Column</th><th>Meaning</th></tr>
+<tr><td><code>area_frac_pct</code></td><td>Fiber density: % of the analysed area covered by the fiber mask.</td></tr>
+<tr><td><code>area_frac_pct_thr_minus10pct / plus10pct</code></td><td>QC: the same with the threshold 10 % lower / higher. A large spread means density and pore size of that image depend strongly on the threshold.</td></tr>
+<tr><td><code>length_density_um_per_um2</code></td><td>Total fiber centerline length per area (µm/µm²), after pruning short spurs.</td></tr>
+<tr><td><code>pore_lt_mean_um / median</code></td><td>Pore size as local thickness: for each pore pixel, the diameter of the largest circle that fits in the pore and covers it; area-weighted, corrected for pores cut by the image edge and the hotspot.</td></tr>
+<tr><td><code>pore_lt_edge_excluded_pct</code></td><td>Share of pore area whose size could not be measured (pore reaches an excluded area).</td></tr>
+<tr><td><code>pore_localmax_mean_um</code></td><td>Secondary pore measure: diameters at local maxima of the distance map.</td></tr>
+<tr><td><code>fiber_lt_mean_um / median</code></td><td>Apparent fiber thickness (local thickness of the mask). Set by optical resolution and threshold — for relative comparison, not the true fibril diameter.</td></tr>
+<tr><td><code>fiber_len_mean_um / median, fiber_len_n</code></td><td>Length of fiber segments between free ends and branch points (segments touching excluded areas are left out and the rest re-weighted).</td></tr>
+<tr><td><code>fiber_segments_per_100um2</code></td><td>Number of segments per 100 µm² — higher = more fragmented / more branched network.</td></tr>
+<tr><td><code>order_S</code></td><td>Alignment: 0 = random directions, 1 = all fibers parallel. <code>file_order_S_pooled</code> pools all images of a file.</td></tr>
+<tr><td><code>mean_angle_deg</code></td><td>Mean fiber direction, −90…90°, counter-clockwise from the image x-axis (as OrientationJ).</td></tr>
+<tr><td><code>coherency</code></td><td>Local alignment within the orientation window (0–1).</td></tr>
+<tr><td><code>tile_cv</code></td><td>Patchiness: coefficient of variation (SD / mean) of the fiber fraction between tiles.</td></tr>
+<tr><td><code>mean_reflectance</code></td><td>Mean raw intensity (quality control: focus, depth attenuation, laser drift).</td></tr>
+<tr><td><code>threshold</code></td><td>Fiber threshold used for the file.</td></tr>
+</table>
+
+<h2 id="good"><a name="good"></a>11. Good practice for comparisons</h2>
+<ul>
+<li><b>Same imaging settings</b> for files you compare (laser power, gain/HV, pinhole, zoom, z-step). The app warns in the log when they differ.</li>
+<li><b>Threshold:</b> for before-vs-after claims, confirm the result with one <b>fixed</b> threshold for both files (chosen with the preview).</li>
+<li><b>Replicates are gels or fields of view, not slices.</b> Neighbouring slices of a stack show the same fibers; the SD over slices describes
+variation with depth, not uncertainty of the sample mean. Use several gels/fields per condition for statistics.</li>
+<li>Check the <b>threshold-sensitivity</b> columns and the <b>edge-excluded</b> % — high values make pore sizes less reliable.</li>
+<li>Keep the <b>file names</b> consistent; the conditions in the names drive grouping, colors and parameter plots.</li>
+</ul>
+
+<h2 id="trouble"><a name="trouble"></a>12. Troubleshooting</h2>
+<table>
+<tr><th>Problem</th><th>What to do</th></tr>
+<tr><td>Mac: “cannot be opened because the developer cannot be verified”</td><td>Right-click the app (or Start_Mac.command) → Open → Open. Only needed once.</td></tr>
+<tr><td>Mac: “app is damaged”</td><td>Terminal: <code>xattr -dr com.apple.quarantine "/Applications/Collagen Analyzer.app"</code></td></tr>
+<tr><td>Windows: “Windows protected your PC”</td><td>More info → Run anyway.</td></tr>
+<tr><td>Launcher: “Python 3.9 or newer is needed”</td><td>Install Python from python.org (Windows: tick “Add python.exe to PATH”), then start again.</td></tr>
+<tr><td>Launcher: installing packages failed</td><td>Check the internet connection (some university networks need the VPN off/on), then start again. To start completely fresh, delete the CollagenAnalyzer folder named in section 1.</td></tr>
+<tr><td>File shows “cannot read” on the Data page</td><td>The file is damaged, still copying, or an iCloud placeholder — in Finder right-click the folder → <i>Keep Downloaded</i>.</td></tr>
+<tr><td>“TIFF files have no pixel size”</td><td>Parameters → File names and TIFF calibration → tick Pixel size and enter it (µm).</td></tr>
+<tr><td>Fiber mask misses fibers / fills background</td><td>Preview → move the threshold → Use as fixed threshold. For thick bundles add ridge scales 0.3, 0.4.</td></tr>
+<tr><td>Yellow hotspot circle is wrong</td><td>Parameters → Manual circle (x, y, r in pixels) or No hotspot.</td></tr>
+<tr><td>Run stops with an error / computer becomes slow</td><td>Lower Parallel workers (e.g. 2). Read the last lines of the log; Save log… and send it with the file name if you need help.</td></tr>
+<tr><td>Distribution graphs say “no distribution data”</td><td>The spreadsheet comes from an older version of the script; run the analysis again with the app.</td></tr>
+<tr><td>A sample is not compared before vs after</td><td>Both file names must start with the same <code>mmddyy_##_</code> and only the after file may contain “AMF”.</td></tr>
+</table>
+
+<h2 id="cli"><a name="cli"></a>13. Command line (optional)</h2>
+<p>The analysis engine is the same Python script as before and can still be run without the window, e.g. for batch jobs:</p>
+<p><code>python3 collagen_core.py /path/to/folder --zstep 4 --threshold 0.19</code></p>
+<p>Run <code>python3 collagen_core.py --help</code> for all options. New options used by the app: <code>--files-from</code> (list of files),
+<code>--results-root</code> (results location), <code>--figures</code> (which figures), <code>--fig-format</code> and <code>--dpi</code>.
+<b>Copy command line</b> on the Run page writes the command matching your current settings.</p>
+
+</body>
+</html>
