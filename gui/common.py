@@ -153,3 +153,69 @@ def open_path(path):
 
 def quote(a):
     return f'"{a}"' if (" " in a or not a) else a
+
+
+# ---------------------------------------------------------------------------- editable sample information
+# key, column title, unit, type, choices, engine key, factor (table value × factor = engine value)
+STD_FIELDS = [
+    ("condition", "Condition", "", "choice", ["Before AMF", "After AMF"], "condition", None),
+    ("amf_hz", "AMF freq.", "Hz", "num", None, "amf_hz", 1.0),
+    ("amf_min", "AMF time", "min", "num", None, "amf_s", 60.0),
+    ("amf_vpp", "Vp-p set", "V", "num", None, "amf_vpp", 1.0),
+    ("amf_v", "V meas.", "V", "num", None, "amf_v", 1.0),
+    ("collagen_mgml", "Collagen", "mg/mL", "num", None, "collagen_mgml", 1.0),
+    ("nc_nM", "NC conc.", "nM", "num", None, "nc_nM", 1.0),
+    ("mixing", "NC mixing", "", "choice", ["", "premixed", "incubated", "premixed + incubated"], "mixing", None),
+    ("inc_min", "Incubation", "min", "num", None, "inc_s", 60.0),
+    ("other", "Note", "", "text", None, "other", None),
+]
+FIELD_TIPS = {
+    "condition": "Before AMF / After AMF (from ‘AMF’ in the name)",
+    "amf_hz": "AMF frequency (name: 500Hz, 1kHz)", "amf_min": "AMF exposure time in minutes (name: 3min, 90s)",
+    "amf_vpp": "Vp-p set on the instrument (name: 10Vpp)", "amf_v": "Measured AMF voltage (name: 8.5V)",
+    "collagen_mgml": "Collagen concentration (name: Collagen_3mgml)",
+    "nc_nM": "Theoretical local nanocage concentration in nM (name: NC_0.5nM)",
+    "mixing": "premixed / incubated (name: premixed, inc45min)", "inc_min": "NC incubation time in minutes (name: inc45min)",
+    "other": "Free note (name: other-text)",
+}
+
+
+def parsed_value(d, key):
+    """Value of a standard field as read from the file name (table units)."""
+    if key == "amf_min":
+        return d["amf_s"] / 60 if d.get("amf_s") is not None else None
+    if key == "inc_min":
+        return d["inc_s"] / 60 if d.get("inc_s") is not None else None
+    return d.get(key)
+
+
+def slug(text):
+    t = str(text).replace("µ", "u").replace("%", "pct").replace("°", "deg")
+    return re.sub(r"[^0-9a-zA-Z]+", "_", t).strip("_").lower()
+
+
+RESERVED = set(core.LABEL_COLS) | {"uid", "folder", "results_folder", "n_images", "area_frac_pct", "order_S",
+                                   "threshold", "coherency", "tile_cv", "mean_reflectance"}
+
+
+def field_key(label, unit, taken=()):
+    """Column name for an added parameter, e.g. ('Gel thickness', 'µm') -> gel_thickness_um."""
+    k = slug(label) + (f"_{slug(unit)}" if unit and slug(unit) else "")
+    k = k or "param"
+    if k[0].isdigit():
+        k = "p_" + k
+    if k in RESERVED or k.startswith(("meta_", "slice_", "set_", "file_")):
+        k += "_user"
+    base, i = k, 2
+    while k in taken:
+        k = f"{base}_{i}"
+        i += 1
+    return k
+
+
+def fmt_value(v):
+    if v is None or v == "":
+        return ""
+    if isinstance(v, float):
+        return f"{v:.6g}"
+    return str(v)

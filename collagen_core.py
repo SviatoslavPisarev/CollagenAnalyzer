@@ -179,6 +179,20 @@ FIGURE_KEYS = {
     "length_dist": "mmddyy_fiber_length_distribution.png",
 }
 FIG = dict(keys=set(FIGURE_KEYS), fmt="png", dpi=None, gui=False)
+# values entered by hand in the app (--metadata): {"fields": [{key, label, unit, type}], "files": {name: {...}}}
+METADATA = {"fields": [], "files": {}}
+MANUAL_KEYS = {"condition": "condition", "amf_hz": "AMF frequency (Hz)", "amf_s": "AMF time (s)",
+               "amf_vpp": "AMF Vp-p set (V)", "amf_v": "AMF measured voltage (V)", "collagen_mgml": "collagen (mg/mL)",
+               "nc_nM": "NC concentration (nM)", "mixing": "NC mixing", "inc_s": "NC incubation time (s)",
+               "other": "note"}
+
+
+def user_fields():
+    return [f["key"] for f in METADATA.get("fields", [])]
+
+
+def manual(name):
+    return METADATA.get("files", {}).get(name, {})
 
 
 def fig_on(key):
@@ -1905,6 +1919,10 @@ def global_settings(P, threshold_source, run_time, single_file, detail):
             ("orientation_pooling", "complex mean of exp(2i theta) over all fiber pixels",
              "file-level S and mean angle"),
             ("workers", P.workers, "parallel processes"),
+            ("user_fields", ",".join(user_fields()) or None,
+             "parameters added in the app: " + "; ".join(f"{f['key']} = {f.get('label', f['key'])}"
+                                                         + (f" ({f['unit']})" if f.get("unit") else "")
+                                                         for f in METADATA.get("fields", []))),
             ("figures", ",".join(k for k in FIGURE_KEYS if k in FIG["keys"]) or "none", "figures made"),
             ("figure_format", f"{FIG['fmt']}, dpi {FIG['dpi'] or 'default'}", "figure file format and resolution"),
             ("single_file", single_file or "", "--file: only this file was analysed")]
@@ -1919,6 +1937,8 @@ def file_settings(d, threshold_source):
             (f"nc_mixing:{n}", mixing_text(d) or None,
              "from the file name: premixed (_premixed_) or incubated with NCs after polymerization (_inc45min_)"),
             (f"other:{n}", d["other"], "note from the file name (_other-..._)"),
+            (f"set_by_hand:{n}", ", ".join(MANUAL_KEYS[k] for k in d.get("manual", [])) or None,
+             "values entered in the app instead of being read from the file name"),
             (f"amf_vpp_set:{n}", d["amf_vpp"], "AMF instrument setting, V peak-to-peak, from the file name (_10Vpp_)"),
             (f"amf_v_measured:{n}", d["amf_v"], "measured AMF voltage, V, from the file name (_8.5V_)"),
             (f"threshold:{n}", d["thr"], threshold_source),
@@ -2130,6 +2150,9 @@ def build_parser():
                     help="figures to make: 'all', 'none' or a comma list of " + ", ".join(FIGURE_KEYS))
     ap.add_argument("--fig-format", choices=["png", "pdf", "svg", "tif"], default="png", help="figure file format")
     ap.add_argument("--dpi", type=int, default=None, help="figure resolution (default: 90-120 depending on figure)")
+    ap.add_argument("--metadata", default=None,
+                    help="JSON file with values entered by hand (they replace the values read from the file names) "
+                         "and added parameters; written by the app")
     ap.add_argument("--gui", action="store_true", help=argparse.SUPPRESS)
     return ap
 
@@ -2138,6 +2161,17 @@ def main(argv=None):
     ap = build_parser()
     P = ap.parse_args(argv)
     FIG["gui"] = P.gui
+    if P.metadata:
+        import json
+        try:
+            with open(P.metadata, encoding="utf-8") as fh:
+                METADATA.update(json.load(fh))
+        except (OSError, ValueError) as e:
+            ap.error(f"--metadata: {e}")
+        pos = LABEL_COLS.index("other") + 1           # added parameters become label columns after the note
+        for k in reversed(user_fields()):
+            if k not in LABEL_COLS:
+                LABEL_COLS.insert(pos, k)
     FIG["fmt"], FIG["dpi"] = P.fig_format, P.dpi
     figs = P.figures.strip().lower()
     if figs == "all":
@@ -2295,6 +2329,8 @@ def analyse_folder(P, folder, files, out, hs_given):
         name = os.path.splitext(os.path.basename(f))[0]
         PROGRESS.set_item(name)
         date, smp, cond = parse_name(name, P.after_pattern)
+        man = manual(name)
+        cond = man.get("condition", cond)
         log(f"reading {name}")
         s, px, dz, times = load_stack(f, P.pixel_size, P.z_step, P.stack_axis, P.t_interval)
         G = geometry(px, P)
@@ -2315,9 +2351,11 @@ def analyse_folder(P, folder, files, out, hs_given):
             f"{SERIES_NAME[kind]} (T,Z,Y,X = {s.shape}){tinfo}, px={px:.4f} um, dz={dz} um, hotspot={hs}; "
             f"{len(frames)} image(s) to analyse")
         hz, sec = parse_amf(name) if cond == "After AMF" else (None, None)
+        hz, sec = man.get("amf_hz", hz), man.get("amf_s", sec)
         if cond == "After AMF" and (hz is None or sec is None):
             log(f"  warning: AMF {'frequency' if hz is None else 'time'} not found in the file name")
         vpp, vm = parse_amf_voltage(name) if cond == "After AMF" else (None, None)
+        vpp, vm = man.get("amf_vpp", vpp), man.get("amf_v", vm)
         if cond == "After AMF":
             log(f"  AMF voltage: Vp-p set {fmt_volt(vpp) or 'not in file name (expected e.g. _10Vpp_)'}; "
                 f"measured {fmt_volt(vm) or 'not in file name (expected e.g. _8.5V_)'}")
@@ -2327,6 +2365,14 @@ def analyse_folder(P, folder, files, out, hs_given):
         nc_nm = parse_nc(name)
         mix, inc_s = parse_mixing(name)
         other = parse_other(name)
+        cmg, nc_nm = man.get("collagen_mgml", cmg), man.get("nc_nM", nc_nm)
+        mix, inc_s, other = man.get("mixing", mix), man.get("inc_s", inc_s), man.get("other", other)
+        set_by_hand = [k for k in MANUAL_KEYS if k in man]
+        custom = dict(man.get("custom", {}))
+        if set_by_hand:
+            log("  set in the app (instead of the file name): " + ", ".join(f"{MANUAL_KEYS[k]} = {man[k]}" for k in set_by_hand))
+        if custom:
+            log("  added parameters: " + ", ".join(f"{k} = {v}" for k, v in custom.items()))
         log(f"  nanocages: {fmt_conc(nc_nm) or 'concentration not in file name (expected _NC_#nM_)'}; "
             f"mixing: {mixing_text(dict(mixing=mix, inc_s=inc_s)) or 'not in file name (expected _premixed_ or _inc#min_)'}"
             + (f"; note: {other}" if other else ""))
@@ -2336,7 +2382,7 @@ def analyse_folder(P, folder, files, out, hs_given):
         fmeta, smeta = read_nd2_metadata(f) if f.lower().endswith(".nd2") else ({}, {})
         if name in data:
             sys.exit(f"two files share the name '{name}' (e.g. .nd2 and .tif); keep only one")
-        data[name] = dict(name=name, path=f, date=date, sample=smp, condition=cond,
+        data[name] = dict(name=name, path=f, date=date, sample=smp, condition=cond, manual=set_by_hand, custom=custom,
                           amf_hz=hz, amf_s=sec, amf_vpp=vpp, amf_v=vm, collagen_mgml=cmg,
                           nc_nM=nc_nm, mixing=mix, inc_s=inc_s, other=other,
                           px=px, dz=dz, hotspot=hs, valid=valid, nt=s.shape[0], nz=s.shape[1],
@@ -2429,7 +2475,7 @@ def analyse_folder(P, folder, files, out, hs_given):
                 res.update(date=d["date"], sample=d["sample"], file=name, condition=d["condition"],
                            collagen_mg_ml=d["collagen_mgml"], nc_conc_nM=d["nc_nM"], nc_mixing=d["mixing"],
                            nc_incubation_time=fmt_duration(d["inc_s"]), nc_incubation_time_s=d["inc_s"],
-                           other=d["other"],
+                           other=d["other"], **{k: d["custom"].get(k) for k in user_fields()},
                            amf_freq_hz=d["amf_hz"], amf_time=fmt_time(d["amf_s"]), amf_time_s=d["amf_s"],
                            amf_vpp_set=d["amf_vpp"], amf_v_measured=d["amf_v"],
                            series=SERIES_NAME[d["kind"]], t_index=t,

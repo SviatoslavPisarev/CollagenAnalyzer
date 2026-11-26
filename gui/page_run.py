@@ -212,7 +212,8 @@ class RunPage(Page):
             f"{self.data.describe()}; {nth(v['zstep'], 'z-slice')}"
             + (f", {nth(v['tstep'], 'time point')}" if v["tstep"] > 1 else "") + f"; {thr}; hotspot {v['hotspot']}; "
             f"{v['workers']} parallel worker{'s' if v['workers'] > 1 else ''}. Results "
-            + (f"in {root}" if root else "next to the data") + ".")
+            + (f"in {root}" if root else "next to the data") + "."
+            + (f" {self.data.n_manual()} value(s) typed by hand on the Data page." if self.data.n_manual() else ""))
         probs = self.problems_list()
         self.problems.setText("\n".join("• " + p for p in probs))
         self.problems.setVisible(bool(probs))
@@ -221,8 +222,15 @@ class RunPage(Page):
 
     def build_args(self):
         self._list_file = os.path.join(tempfile.gettempdir(), f"collagen_files_{os.getpid()}.txt")
-        return (self.data.engine_args(self._list_file) + self.params.engine_args()
-                + self.outputs.engine_args() + ["--gui"])
+        self._meta_file = os.path.join(tempfile.gettempdir(), f"collagen_metadata_{os.getpid()}.json")
+        args = self.data.engine_args(self._list_file)
+        meta = self.data.metadata()
+        if meta["files"] or meta["fields"]:
+            import json
+            with open(self._meta_file, "w", encoding="utf-8") as fh:
+                json.dump(meta, fh, indent=1)
+            args += ["--metadata", self._meta_file]
+        return args + self.params.engine_args() + self.outputs.engine_args() + ["--gui"]
 
     def copy_command(self):
         probs = self.problems_list()
@@ -230,6 +238,10 @@ class RunPage(Page):
             QMessageBox.information(self, "Command line", probs[0])
             return
         args = [a for a in self.build_args() if a != "--gui"]
+        if "--metadata" in args:
+            i = args.index("--metadata")
+            args = args[:i] + args[i + 2:]
+            args.append("   # (values typed on the Data page are not part of this command)")
         if "--files-from" in args:
             i = args.index("--files-from")
             files = self.data.selected_files()

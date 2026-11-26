@@ -74,9 +74,9 @@ On a Mac, press <b>Cmd + Shift + .</b> in Finder to see hidden folders.)</li>
 <li>Open the finished run and download from <b>Artifacts</b>: <code>CollagenAnalyzer-mac-apple-silicon</code> (M1/M2/M3/M4 Macs),
 <code>CollagenAnalyzer-mac-intel</code> (older Macs) or <code>CollagenAnalyzer-windows</code>.</li>
 </ol>
-<p><b>Mac:</b> unzip and drag <b>Collagen Analyzer.app</b> to Applications. The app is not signed by Apple, so the first time
-<b>right-click (or Control-click) the app → Open → Open</b>. If macOS says the app “is damaged”, open Terminal and run
-<code>xattr -dr com.apple.quarantine "/Applications/Collagen Analyzer.app"</code>, then open it normally.</p>
+<p><b>Mac:</b> unzip and drag <b>Collagen Analyzer.app</b> to Applications. The app is not signed by Apple, so macOS blocks it the
+first time. Open Terminal and run <code>xattr -dr com.apple.quarantine "/Applications/Collagen Analyzer.app"</code>, then open it
+normally (or: after the warning, System Settings → Privacy &amp; Security → <b>Open Anyway</b>).</p>
 <p><b>Windows:</b> unzip the folder anywhere (e.g. Documents) and double-click <b>CollagenAnalyzer.exe</b> inside it (keep the
 <code>_internal</code> folder next to it). If Windows SmartScreen appears: <b>More info → Run anyway</b>. Right-click the .exe →
 <i>Send to → Desktop (create shortcut)</i> for a desktop icon.</p>
@@ -85,7 +85,10 @@ On a Mac, press <b>Cmd + Shift + .</b> in Finder to see hidden folders.)</li>
 <ol>
 <li>Install Python 3.11 or 3.12 from <a href="https://www.python.org/downloads/">python.org</a>.
 On Windows tick <b>“Add python.exe to PATH”</b> in the installer.</li>
-<li><b>Mac:</b> double-click <code>Start_Mac.command</code>. The first time, macOS may refuse to open it: right-click → Open → Open.
+<li><b>Mac:</b> the first time, macOS blocks files downloaded from the internet (“Apple could not verify…” — click <b>Done</b>, not
+Move to Trash). Easiest: open <b>Terminal</b>, type <code>xattr -dr com.apple.quarantine </code> (with a space at the end), drag the
+app folder into the Terminal window, press Return. Then double-click <code>Start_Mac.command</code>. (Alternative: after the warning,
+open <b>System Settings → Privacy &amp; Security</b>, scroll down and click <b>Open Anyway</b>.)
 <b>Windows:</b> double-click <code>Start_Windows.bat</code>.</li>
 <li>The first start installs the needed packages (2–5 minutes, internet needed; a terminal window shows the progress).
 Later starts take a few seconds.</li>
@@ -145,6 +148,31 @@ the filter box finds files by any text in the table (e.g. <code>AMF</code>, <cod
 <li><b>Type</b> and <b>Pixel</b> are read from each file (z-stack with number of slices, time-lapse, single image).</li>
 <li>A yellow box lists problems: names without date/sample, files that cannot be opened, TIFFs without pixel size.</li>
 </ul>
+
+<h3>Changing values by hand, defaults and your own parameters</h3>
+<p>Everything read from the file names (condition, AMF frequency/time/Vp-p/voltage, collagen, NC concentration, NC mixing,
+incubation time, note) can be corrected or filled in directly in the table:</p>
+<ul>
+<li><b>Double-click a cell</b> and type the value (or pick from the list for Condition and NC mixing). Units are in the
+column titles: AMF time and incubation in <b>minutes</b>, NC concentration in <b>nM</b>. Values typed by hand are
+<b>bold on a yellow background</b>; leave a cell empty to clear it.</li>
+<li><b>Right-click</b> a cell to copy its value to all <i>selected</i> files or all <i>ticked</i> files, to make it the default for
+future files, or to go back to the value from the file name. Select several cells with Shift- or Cmd/Ctrl-click first.</li>
+<li><b>Defaults &amp; added parameters…</b> opens a window where you can
+  <ul>
+  <li>set a <b>default</b> for any standard field, used for every file whose name does not contain it (shown in
+  <i>grey italic</i> in the table) — e.g. collagen 3 mg/mL when it is not in the names;</li>
+  <li><b>add your own parameters</b> (name, unit, Number or Text, default for all files) — e.g. gel thickness (µm), NC type,
+  replicate, temperature. Each gets a column in the table that you can edit per file.</li>
+  </ul></li>
+</ul>
+<p>Hand-typed values, defaults and added parameters are <b>remembered for future runs</b>. They are used in all titles and
+spreadsheets; added parameters become their own columns (e.g. <code>gel_thickness_um</code>, <code>nc_type</code>). The sheet
+<i>settings</i> records which values were typed by hand for each file (<code>set_by_hand</code>) and which parameters were added
+(<code>user_fields</code>), and the run log lists them. In Results &amp; Plots, numeric added parameters can be used as the x-axis,
+and all added parameters for colors and grouping.</p>
+<div class="tip">Typed values replace what the file name says, so a mistyped file name can be fixed without renaming the file.
+Renaming the files is still the most reliable record for the future.</div>
 
 <h2 id="params" class="newpage"><a name="params"></a>5. Page 2 · Parameters and preview</h2>
 <img class="shot" src="img/params.png" width="880">
@@ -319,7 +347,7 @@ variation with depth, not uncertainty of the sample mean. Use several gels/field
 <h2 id="trouble"><a name="trouble"></a>12. Troubleshooting</h2>
 <table>
 <tr><th>Problem</th><th>What to do</th></tr>
-<tr><td>Mac: “cannot be opened because the developer cannot be verified”</td><td>Right-click the app (or Start_Mac.command) → Open → Open. Only needed once.</td></tr>
+<tr><td>Mac: “Apple could not verify … is free of malware” / “Not Opened”</td><td>Click Done. Terminal: <code>xattr -dr com.apple.quarantine </code> + drag the app folder in + Return; or System Settings → Privacy &amp; Security → Open Anyway. Only needed once.</td></tr>
 <tr><td>Mac: “app is damaged”</td><td>Terminal: <code>xattr -dr com.apple.quarantine "/Applications/Collagen Analyzer.app"</code></td></tr>
 <tr><td>Windows: “Windows protected your PC”</td><td>More info → Run anyway.</td></tr>
 <tr><td>Launcher: “Python 3.9 or newer is needed”</td><td>Install Python from python.org (Windows: tick “Add python.exe to PATH”), then start again.</td></tr>
@@ -330,6 +358,7 @@ variation with depth, not uncertainty of the sample mean. Use several gels/field
 <tr><td>Yellow hotspot circle is wrong</td><td>Parameters → Manual circle (x, y, r in pixels) or No hotspot.</td></tr>
 <tr><td>Run stops with an error / computer becomes slow</td><td>Lower Parallel workers (e.g. 2). Read the last lines of the log; Save log… and send it with the file name if you need help.</td></tr>
 <tr><td>Distribution graphs say “no distribution data”</td><td>The spreadsheet comes from an older version of the script; run the analysis again with the app.</td></tr>
+<tr><td>A value from the file name is wrong or missing</td><td>Data page: double-click the cell and type the value (Section 4).</td></tr>
 <tr><td>A sample is not compared before vs after</td><td>Both file names must start with the same <code>mmddyy_##_</code> and only the after file may contain “AMF”.</td></tr>
 </table>
 
@@ -337,7 +366,8 @@ variation with depth, not uncertainty of the sample mean. Use several gels/field
 <p>The analysis engine is the same Python script as before and can still be run without the window, e.g. for batch jobs:</p>
 <p><code>python3 collagen_core.py /path/to/folder --zstep 4 --threshold 0.19</code></p>
 <p>Run <code>python3 collagen_core.py --help</code> for all options. New options used by the app: <code>--files-from</code> (list of files),
-<code>--results-root</code> (results location), <code>--figures</code> (which figures), <code>--fig-format</code> and <code>--dpi</code>.
+<code>--results-root</code> (results location), <code>--figures</code> (which figures), <code>--fig-format</code>, <code>--dpi</code> and
+<code>--metadata</code> (a JSON file with values typed by hand and added parameters).
 <b>Copy command line</b> on the Run page writes the command matching your current settings.</p>
 
 </body>

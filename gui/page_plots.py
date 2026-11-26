@@ -85,6 +85,7 @@ class ResultsStore:
         self.sources = []          # loaded workbook paths
         self.hists = {}            # uid -> {lt, fib, seg, ang, S, frames: {(t,z): {...}}}
         self.info = {}             # uid -> first row (labels)
+        self.user_fields = []      # parameters added in the app (column names)
 
     def load(self, path):
         path = os.path.abspath(path)
@@ -119,6 +120,12 @@ class ResultsStore:
         for src in self.per["_src"].unique():
             self._load_hists(src)
         self.info = {u: g.iloc[0].to_dict() for u, g in self.per.groupby("uid", sort=False)}
+        if "set_user_fields" in self.per.columns:
+            for v in self.per["set_user_fields"].dropna().astype(str):
+                for k in v.split(","):
+                    k = k.strip()
+                    if k and k in self.per.columns and k not in self.user_fields:
+                        self.user_fields.append(k)
         return df["uid"].nunique()
 
     def _load_hists(self, src):
@@ -382,6 +389,7 @@ class PlotsPage(Page):
             self.src_label.setText("Nothing loaded.")
         self._fill_tree()
         self._fill_metric()
+        self._fill_choice_lists()
         self._schedule()
 
     # ------------------------------------------------------------------ file tree
@@ -468,7 +476,7 @@ class PlotsPage(Page):
             if cols is None or k in cols:
                 self.metric.addItem(t, k)
         if cols is not None:
-            known = {k for k, _ in METRICS} | set(core.LABEL_COLS) | {"uid", "_src"}
+            known = {k for k, _ in METRICS} | set(core.LABEL_COLS) | {"uid", "_src"} | set(self.store.user_fields)
             for c in sorted(cols - known):
                 if not c.startswith(("meta_", "slice_", "set_", "file_", "results_folder", "folder")) \
                         and pd.api.types.is_numeric_dtype(self.store.per[c]):
@@ -498,7 +506,7 @@ class PlotsPage(Page):
             for k, lab in [("bar", "Bars")]:
                 self.style_.addItem(lab, k)
         elif t == "param":
-            for k, lab, _ in PARAM_X:
+            for k, lab, _ in self.param_x():
                 self.xaxis.addItem(lab, k)
             for k, lab in [("points_lines", "Points joined by lines (per color)"), ("points", "Points only")]:
                 self.style_.addItem(lab, k)
@@ -593,7 +601,7 @@ class PlotsPage(Page):
         for u in files:
             v = self.store.info[u].get(key)
             name = f"Sample {v}" if key == "sample" else (
-                f"{dict(GROUP_BY)[key]}: {_fmt(v)}" if key not in ("condition",) else str(v))
+                f"{dict(GROUP_BY).get(key, key.replace('_', ' '))}: {_fmt(v)}" if key not in ("condition",) else str(v))
             g.setdefault(name, []).append(u)
         return list(g.items())
 
@@ -848,7 +856,7 @@ class PlotsPage(Page):
     def plot_param(self, files):
         col, mlabel = self._metric()
         xcol = self.xaxis.currentData()
-        xlab, sc = next((l, s) for k, l, s in PARAM_X if k == xcol)
+        xlab, sc = next((l, s) for k, l, s in self.param_x() if k == xcol)
         per = self.store.per
         info = self.store.info
         cols = self.colors(files)
@@ -858,8 +866,10 @@ class PlotsPage(Page):
         for a, (gname, us) in zip(axs, groups):
             series = {}
             for u in us:
-                xv = info[u].get(xcol)
-                if xv is None or (isinstance(xv, float) and np.isnan(xv)):
+                try:
+                    xv = float(info[u].get(xcol))
+                    assert np.isfinite(xv)
+                except (TypeError, ValueError, AssertionError):
                     missing.append(u)
                     continue
                 d = per.loc[per.uid == u, col].dropna().to_numpy(float)
@@ -881,6 +891,23 @@ class PlotsPage(Page):
                            ("…" if len(missing) > 4 else "") + ". ") if missing else
                           "Each point = one file (mean over its images ± error). Colors as chosen under ‘Colors’.")
 
+    def param_x(self):
+        num = [k for k in self.store.user_fields if pd.api.types.is_numeric_dtype(self.store.per[k])]
+        return PARAM_X + [(k, f"{k.replace('_', ' ')} (added)", 1.0) for k in num]
+
+    def _fill_choice_lists(self):
+        extra = [(k, f"{k.replace('_', ' ')} (added)") for k in self.store.user_fields]
+        for combo, base in ((self.color_by, COLOR_BY), (self.group_by, GROUP_BY)):
+            cur = combo.currentData()
+            combo.blockSignals(True)
+            combo.clear()
+            for k, t in base + extra:
+                combo.addItem(t, k)
+            i = combo.findData(cur)
+            combo.setCurrentIndex(max(i, 0))
+            combo.blockSignals(False)
+        self._controls_changed()
+
     def _legend_for_color(self, us):
         key = self.color_by.currentData()
         r = self.store.info[us[0]]
@@ -888,7 +915,7 @@ class PlotsPage(Page):
             return r["condition"]
         if key == "file":
             return self.label(us[0])
-        return f"{dict(COLOR_BY)[key]}: {_fmt(r.get(key))}"
+        return f"{dict(COLOR_BY).get(key, key.replace('_', ' '))}: {_fmt(r.get(key))}"
 
     def plot_dist(self, files):
         which = self.dist.currentData()

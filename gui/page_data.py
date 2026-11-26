@@ -1,18 +1,59 @@
 """Page 1: choose a file, a folder or several folders, and which files to analyse."""
 import os
 import glob
+import json
 
 from PySide6.QtCore import Qt, Signal, QObject, QRunnable, QThreadPool, QSettings
-from PySide6.QtGui import QColor, QBrush
+from PySide6.QtGui import QColor, QBrush, QFont, QDoubleValidator
 from PySide6.QtWidgets import (QButtonGroup, QFileDialog, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-                               QListWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, QAbstractItemView)
+                               QListWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, QAbstractItemView,
+                               QStyledItemDelegate, QComboBox, QMenu, QMessageBox)
 
-from .common import IMAGE_EXT, parse_file_name, read_header, kind_text
+from .common import (IMAGE_EXT, parse_file_name, read_header, kind_text, STD_FIELDS, FIELD_TIPS, parsed_value,
+                     field_key, fmt_value)
+from .fields_dialog import FieldsDialog
 from .widgets import Page, Card, ModeCard, button, hint, banner, hbox
 from . import style
 
-COLUMNS = ["", "File", "Folder", "Date", "Sample", "Condition", "AMF", "Collagen", "NC conc.", "NC mixing",
-           "Note", "Type", "Pixel (µm)"]
+LEFT = ["", "File", "Folder", "Date", "Sample"]
+RIGHT = ["Type", "Pixel (µm)"]
+EDITED_BG = QColor("#fff3c4")
+
+
+class FieldDelegate(QStyledItemDelegate):
+    """Editors for the sample-information columns: lists for choices, numbers for numeric fields."""
+
+    def __init__(self, page):
+        super().__init__(page.table)
+        self.page = page
+
+    def createEditor(self, parent, option, index):
+        f = self.page.col_field.get(index.column())
+        if f is None:
+            return None
+        typ, choices = f["type"], f.get("choices")
+        if typ == "choice":
+            cb = QComboBox(parent)
+            cb.addItems([c if c else "(none)" for c in choices])
+            return cb
+        ed = QLineEdit(parent)
+        if typ == "num":
+            ed.setPlaceholderText("number, or empty")
+        return ed
+
+    def setEditorData(self, editor, index):
+        txt = index.data(Qt.EditRole) or ""
+        if isinstance(editor, QComboBox):
+            editor.setCurrentText(txt if txt else "(none)")
+        else:
+            editor.setText(txt)
+
+    def setModelData(self, editor, model, index):
+        if isinstance(editor, QComboBox):
+            t = editor.currentText()
+            model.setData(index, "" if t == "(none)" else t, Qt.EditRole)
+        else:
+            model.setData(index, editor.text(), Qt.EditRole)
 
 
 class _HeaderSignals(QObject):
@@ -42,6 +83,18 @@ class DataPage(Page):
         self.headers = {}
         self.after_pattern = "AMF"
         self.pool = QThreadPool.globalInstance()
+        st = QSettings()
+        try:
+            self.overrides = json.loads(st.value("data/overrides", "") or "{}")   # path -> {field: value}
+        except ValueError:
+            self.overrides = {}
+        try:
+            self.fields_cfg = json.loads(st.value("data/fields", "") or "{}")
+        except ValueError:
+            self.fields_cfg = {}
+        self.fields_cfg.setdefault("defaults", {})
+        self.fields_cfg.setdefault("custom", [])
+        self.col_field = {}
 
         # ---- mode cards
         cards = QWidget()
@@ -70,7 +123,7 @@ class DataPage(Page):
         self.src_label.setStyleSheet("font-weight: 700; font-size: 14px;")
         self.path_edit = QLineEdit()
         self.path_edit.setReadOnly(True)
-        self.path_edit.setPlaceholderText("Nothing selected yet — click Browse, or drag files / folders onto this window")
+        self.path_edit.setPlaceholderText("Nothing selected yet — click Choose…, or drag files / folders onto this window")
         self.browse_btn = button("Browse…", "primary", slot=self.browse)
         self.add_btn = button("Add folder…", "primary", slot=self.add_folder)
         self.remove_btn = button("Remove selected folder", slot=self.remove_folder)
@@ -102,13 +155,20 @@ class DataPage(Page):
         top.addWidget(self.filter_edit)
         top.addWidget(button("Tick all", slot=lambda: self.tick_all(True)))
         top.addWidget(button("Untick all", slot=lambda: self.tick_all(False)))
+        top.addWidget(button("Defaults && added parameters…", "primary", slot=self.edit_fields,
+                             tip="Default values used when a file name lacks them, and your own parameters "
+                                 "(e.g. gel thickness, NC type) — remembered for future runs"))
         files.lay.addLayout(top)
-        self.table = QTableWidget(0, len(COLUMNS))
-        self.table.setHorizontalHeaderLabels(COLUMNS)
+        self.table = QTableWidget(0, 0)
         self.table.verticalHeader().setVisible(False)
         self.table.setAlternatingRowColors(True)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectItems)
+        self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.table.setEditTriggers(QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed
+                                   | QAbstractItemView.AnyKeyPressed)
+        self.table.setItemDelegate(FieldDelegate(self))
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._context_menu)
         self.table.setSortingEnabled(True)
         hh = self.table.horizontalHeader()
         hh.setSectionResizeMode(QHeaderView.Interactive)
@@ -120,8 +180,15 @@ class DataPage(Page):
         self.warn = banner("")
         self.warn.hide()
         files.lay.addWidget(self.warn)
-        files.lay.addWidget(hint("Tick the files to analyse. Hover a row for the full name. Files of one sample "
-                                 "(same mmddyy_##_) are compared before vs after AMF."))
+        legend = QLabel("Double-click a value to change it (e.g. an NC concentration missing from the name). "
+                        "<span style='background:#fff3c4'>&nbsp;Yellow&nbsp;</span> = typed by hand, "
+                        "<i style='color:#6b7785'>grey italic</i> = default. Right-click for: copy to selected / "
+                        "ticked files, back to the file-name value. Your changes are remembered.")
+        legend.setObjectName("hint")
+        legend.setWordWrap(True)
+        files.lay.addWidget(legend)
+        files.lay.addWidget(hint("Tick the files to analyse. Files of one sample (same mmddyy_##_) are compared "
+                                 "before vs after AMF."))
         self.lay.addWidget(files, 1)
 
         s = QSettings()
@@ -224,29 +291,41 @@ class DataPage(Page):
             paths = list(dict.fromkeys(p for p in paths if not os.path.basename(p).startswith("._")))
         old_tick = {p: r.get("tick", True) for p, r in self.rows.items()}
         self.rows = {}
+        fields = self.fields()
+        cols = LEFT + [f["title"] for f in fields] + RIGHT
+        self.col_field = {len(LEFT) + i: f for i, f in enumerate(fields)}
+        self.col_type, self.col_px = len(cols) - 2, len(cols) - 1
         self.table.blockSignals(True)
         self.table.setSortingEnabled(False)
+        self.table.clear()
+        self.table.setColumnCount(len(cols))
+        self.table.setHorizontalHeaderLabels(cols)
+        for c, f in self.col_field.items():
+            self.table.horizontalHeaderItem(c).setToolTip(f["tip"])
         self.table.setRowCount(len(paths))
         multi_folder = len(self.folders) > 1
         for i, p in enumerate(paths):
             d = parse_file_name(p, self.after_pattern)
             d["tick"] = old_tick.get(p, True)
             self.rows[p] = d
-            vals = ["", d["name"], os.path.basename(os.path.dirname(p)), d["date"], d["sample"].split("_")[-1]
-                    if d["named"] else "?", d["condition"], d["amf"], d["collagen"], d["nc"], d["mix"],
-                    d["other"] or "", "…", ""]
-            for c, v in enumerate(vals):
-                it = QTableWidgetItem(v)
+            vals = ["", d["name"], os.path.basename(os.path.dirname(p)), d["date"],
+                    d["sample"].split("_")[-1] if d["named"] else "?"]
+            for c in range(len(cols)):
+                it = QTableWidgetItem(vals[c] if c < len(vals) else "")
                 it.setData(Qt.UserRole, p)
                 it.setToolTip(p)
+                if c in self.col_field:
+                    it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsEditable)
+                else:
+                    it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
                 if c == 0:
                     it.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled | Qt.ItemIsSelectable)
                     it.setCheckState(Qt.Checked if d["tick"] else Qt.Unchecked)
-                if c == 5:
-                    it.setForeground(QBrush(QColor(style.AFTER if d["condition"] == "After AMF" else style.BEFORE)))
                 if c == 3 and not d["named"]:
                     it.setForeground(QBrush(QColor(style.ERROR)))
                 self.table.setItem(i, c, it)
+            self._fill_fields(i, p)
+            self.table.item(i, self.col_type).setText("…")
             h = self.headers.get(p)
             if h is not None:
                 self._fill_header(i, h)
@@ -256,12 +335,210 @@ class DataPage(Page):
                 self.pool.start(job)
         self.table.setColumnHidden(2, not multi_folder)
         self.table.resizeColumnsToContents()
-        for c, (lo, hi) in {0: (30, 34), 1: (220, 420), 2: (80, 200), 6: (60, 260), 10: (50, 200)}.items():
-            self.table.setColumnWidth(c, min(max(self.table.columnWidth(c), lo), hi))
+        self.table.setColumnWidth(0, 32)
+        self.table.setColumnWidth(1, min(max(self.table.columnWidth(1), 220), 420))
+        for c in self.col_field:
+            self.table.setColumnWidth(c, min(max(self.table.columnWidth(c), 70), 200))
         self.table.setSortingEnabled(True)
         self.table.blockSignals(False)
         self.apply_filter(self.filter_edit.text())
         self._update_count()
+
+    # ------------------------------------------------------------------ sample information (editable)
+    def fields(self):
+        """Columns of sample information: standard ones, then the parameters added by the user."""
+        out = [dict(key=k, title=t + (f" ({u})" if u else ""), unit=u, type=typ, choices=ch, engine=ek, factor=fac,
+                    tip=FIELD_TIPS.get(k, ""), custom=False, label=t)
+               for k, t, u, typ, ch, ek, fac in STD_FIELDS]
+        taken = set()
+        for f in self.fields_cfg.get("custom", []):
+            key = field_key(f["label"], f.get("unit", ""), taken)
+            taken.add(key)
+            out.append(dict(key="custom:" + f["id"], title=f["label"] + (f" ({f['unit']})" if f.get("unit") else ""),
+                            unit=f.get("unit", ""), type=f.get("type", "num"), choices=None, engine=key, factor=None,
+                            tip=f"Added parameter → spreadsheet column ‘{key}’", custom=True, label=f["label"],
+                            default=f.get("default")))
+        return out
+
+    def value(self, path, f):
+        """(value, source) of one field of one file; source = edited / name / default / ''."""
+        ov = self.overrides.get(path, {})
+        if f["key"] in ov:
+            return ov[f["key"]], "edited"
+        if not f["custom"]:
+            v = parsed_value(self.rows[path], f["key"]) if path in self.rows else None
+            if v is not None and v != "":
+                return v, "name"
+            dv = self.fields_cfg["defaults"].get(f["key"])
+            return (dv, "default") if dv not in (None, "") else (None, "")
+        return (f.get("default"), "default") if f.get("default") not in (None, "") else (None, "")
+
+    def _fill_fields(self, i, path):
+        was = self.table.blockSignals(True)
+        for c, f in self.col_field.items():
+            it = self.table.item(i, c)
+            v, src = self.value(path, f)
+            it.setText(fmt_value(v))
+            font = it.font()
+            font.setItalic(src == "default")
+            font.setBold(src == "edited")
+            it.setFont(font)
+            it.setBackground(QBrush(EDITED_BG) if src == "edited" else QBrush())
+            col = (style.AFTER if v == "After AMF" else style.BEFORE) if f["key"] == "condition" else None
+            it.setForeground(QBrush(QColor(col or ("#6b7785" if src == "default" else style.TEXT))))
+            name_v = parsed_value(self.rows[path], f["key"]) if not f["custom"] else None
+            tips = {"edited": f"Typed by hand (file name: {fmt_value(name_v) or 'nothing'}). Right-click → "
+                              "‘Back to file-name value’ to undo.",
+                    "default": "Default value (Defaults & added parameters…)", "name": "Read from the file name",
+                    "": "Not in the file name — double-click to enter"}
+            it.setToolTip(f"{f['tip']}\n{tips[src]}")
+        self.table.blockSignals(was)
+
+    def _row_of(self, path):
+        for i in range(self.table.rowCount()):
+            it = self.table.item(i, 0)
+            if it is not None and it.data(Qt.UserRole) == path:
+                return i
+        return None
+
+    def _parse_input(self, f, text):
+        t = (text or "").strip()
+        if f["type"] == "num":
+            if not t:
+                return None
+            try:
+                return float(t.replace(",", "."))
+            except ValueError:
+                raise ValueError(f"‘{text}’ is not a number ({f['title']}).")
+        return t or None
+
+    def set_value(self, path, f, value):
+        ov = self.overrides.setdefault(path, {})
+        ov.pop(f["key"], None)
+        base, _ = self.value(path, f)                 # value without a hand-typed entry (file name / default)
+        if value != base:
+            ov[f["key"]] = value
+        if not ov:
+            self.overrides.pop(path, None)
+        self._save_overrides()
+
+    def reset_value(self, path, f):
+        ov = self.overrides.get(path, {})
+        ov.pop(f["key"], None)
+        if not ov:
+            self.overrides.pop(path, None)
+        self._save_overrides()
+
+    def _save_overrides(self):
+        QSettings().setValue("data/overrides", json.dumps(self.overrides))
+
+    def _context_menu(self, pos):
+        it = self.table.itemAt(pos)
+        if it is None:
+            return
+        c = it.column()
+        f = self.col_field.get(c)
+        rows = sorted({x.row() for x in self.table.selectedItems()} | {it.row()})
+        paths = [self.table.item(r, 0).data(Qt.UserRole) for r in rows]
+        m = QMenu(self)
+        if f:
+            v, src = self.value(it.data(Qt.UserRole), f)
+            shown = fmt_value(v) or "(empty)"
+            m.addAction(f"Edit {f['label']}…", lambda: self.table.editItem(it))
+            if len(paths) > 1:
+                m.addAction(f"Set {f['label']} = {shown} for the {len(paths)} selected files",
+                            lambda: self._apply(paths, f, v))
+            ticked = self.selected_files()
+            m.addAction(f"Set {f['label']} = {shown} for all {len(ticked)} ticked files",
+                        lambda: self._apply(ticked, f, v))
+            m.addAction(f"Make {shown} the default {f['label']} for future files",
+                        lambda: self._make_default(f, v))
+            m.addSeparator()
+            m.addAction(f"Back to file-name value ({f['label']}" + (", selected files)" if len(paths) > 1 else ")"),
+                        lambda: self._reset_field(paths, f))
+        m.addAction("Undo all hand-typed values of " + ("the selected files" if len(paths) > 1 else "this file"),
+                    lambda: self._reset_files(paths))
+        m.addSeparator()
+        m.addAction("Defaults & added parameters…", self.edit_fields)
+        m.exec(self.table.viewport().mapToGlobal(pos))
+
+    def _reset_field(self, paths, f):
+        for p in paths:
+            self.reset_value(p, f)
+        self._refill(paths)
+
+    def _apply(self, paths, f, v):
+        for p in paths:
+            self.set_value(p, f, v)
+        self._refill(paths)
+
+    def _make_default(self, f, v):
+        if f["custom"]:
+            for cf in self.fields_cfg["custom"]:
+                if "custom:" + cf["id"] == f["key"]:
+                    cf["default"] = v
+        elif v in (None, ""):
+            self.fields_cfg["defaults"].pop(f["key"], None)
+        else:
+            self.fields_cfg["defaults"][f["key"]] = v
+        QSettings().setValue("data/fields", json.dumps(self.fields_cfg))
+        self.refresh()
+
+    def _reset_files(self, paths):
+        for p in paths:
+            self.overrides.pop(p, None)
+        self._save_overrides()
+        self._refill(paths)
+
+    def _refill(self, paths):
+        for p in paths:
+            i = self._row_of(p)
+            if i is not None:
+                self._fill_fields(i, p)
+        self._update_count()
+
+    def edit_fields(self):
+        dlg = FieldsDialog(self.fields_cfg, self)
+        if dlg.exec() and dlg.result_cfg is not None:
+            ids = {"custom:" + f["id"] for f in dlg.result_cfg["custom"]}
+            for p in list(self.overrides):                 # drop values of removed parameters
+                for k in [k for k in self.overrides[p] if k.startswith("custom:") and k not in ids]:
+                    del self.overrides[p][k]
+                if not self.overrides[p]:
+                    del self.overrides[p]
+            self.fields_cfg = dlg.result_cfg
+            QSettings().setValue("data/fields", json.dumps(self.fields_cfg))
+            self._save_overrides()
+            self.refresh()
+
+    def metadata(self):
+        """Values for the analysis engine (--metadata): hand-typed and default values, added parameters."""
+        fields = self.fields()
+        files = {}
+        for p in self.selected_files():
+            name = self.rows[p]["name"]
+            entry, custom = {}, {}
+            for f in fields:
+                v, src = self.value(p, f)
+                if f["custom"]:
+                    if v not in (None, ""):
+                        custom[f["engine"]] = v
+                elif src in ("edited", "default"):
+                    if f["factor"] and v is not None:
+                        v = v * f["factor"]
+                        if f["engine"] in ("amf_s", "inc_s"):
+                            v = int(round(v))
+                    entry[f["engine"]] = v if v != "" else None
+            if custom:
+                entry["custom"] = custom
+            if entry:
+                files[name] = entry
+        return {"fields": [dict(key=f["engine"], label=f["label"], unit=f["unit"], type=f["type"])
+                           for f in fields if f["custom"]], "files": files}
+
+    def n_manual(self):
+        sel = set(self.selected_files())
+        return sum(len([k for k in v if not k.startswith("custom:")]) for p, v in self.overrides.items() if p in sel)
 
     def _header_ready(self, path, h):
         self.headers[path] = h
@@ -272,21 +549,35 @@ class DataPage(Page):
         self._update_count()
 
     def _fill_header(self, i, h):
-        self.table.blockSignals(True)
-        self.table.item(i, 11).setText(kind_text(h) if "error" not in h else "cannot read")
+        was = self.table.blockSignals(True)
+        self.table.item(i, self.col_type).setText(kind_text(h) if "error" not in h else "cannot read")
         px = h.get("px")
-        self.table.item(i, 12).setText(f"{px:.4f}" if px else ("—" if "error" not in h else ""))
+        self.table.item(i, self.col_px).setText(f"{px:.4f}" if px else ("—" if "error" not in h else ""))
         if "error" in h:
-            self.table.item(i, 11).setToolTip(h["error"])
-            self.table.item(i, 11).setForeground(QBrush(QColor(style.ERROR)))
-        self.table.blockSignals(False)
+            self.table.item(i, self.col_type).setToolTip(h["error"])
+            self.table.item(i, self.col_type).setForeground(QBrush(QColor(style.ERROR)))
+        self.table.blockSignals(was)
 
     def _item_changed(self, it):
+        p = it.data(Qt.UserRole)
         if it.column() == 0:
-            p = it.data(Qt.UserRole)
             if p in self.rows:
                 self.rows[p]["tick"] = it.checkState() == Qt.Checked
             self._update_count()
+            return
+        f = self.col_field.get(it.column())
+        if f is None or p not in self.rows:
+            return
+        try:
+            v = self._parse_input(f, it.text())
+        except ValueError as e:
+            QMessageBox.warning(self, "Not a number", str(e))
+            self._refill([p])
+            return
+        old, _ = self.value(p, f)
+        if v != old:
+            self.set_value(p, f, v)
+        self._refill([p])
 
     def tick_all(self, on):
         self.table.blockSignals(True)
@@ -301,7 +592,7 @@ class DataPage(Page):
     def apply_filter(self, text):
         t = text.lower().strip()
         for i in range(self.table.rowCount()):
-            row = " ".join(self.table.item(i, c).text().lower() for c in range(1, len(COLUMNS)))
+            row = " ".join(self.table.item(i, c).text().lower() for c in range(1, self.table.columnCount()))
             self.table.setRowHidden(i, bool(t) and t not in row)
 
     def _update_count(self):
