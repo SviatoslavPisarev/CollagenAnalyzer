@@ -105,6 +105,7 @@ except ImportError:                      # collagen_core.py copied on its own, w
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from ml import qc as QC
 from ml import fibermodel as FM
+import cloudfiles as CF
 
 ANGLE_BINS = 36                      # 5-degree bins over -90..90 deg
 BEFORE_COLOR, AFTER_COLOR = "#3b6fb6", "#d9622b"
@@ -195,6 +196,8 @@ FIGURE_KEYS = {
 FIG = dict(keys=set(FIGURE_KEYS), fmt="png", dpi=None, gui=False)
 # values entered by hand in the app (--metadata): {"fields": [{key, label, unit, type}], "files": {name: {...}}}
 METADATA = {"fields": [], "files": {}}
+# files in iCloud Drive: how long to wait for a download (s); set from --cloud-wait-min
+CLOUD = dict(timeout=900)
 MANUAL_KEYS = {"condition": "condition", "amf_hz": "AMF frequency (Hz)", "amf_s": "AMF time (s)",
                "amf_vpp": "AMF Vp-p set (V)", "amf_v": "AMF measured voltage (V)",
                "amf_app": "AMF Ap-p set (A)", "coil_turns": "coil turns", "amf_b": "magnetic field (mT)",
@@ -296,6 +299,7 @@ def load_stack(path, pixel_size=None, z_step=None, stack_axis="auto", t_interval
     """Read a file as (T, Z, Y, X) float32.
     Returns (array, px_um, z_um, times_s or None)."""
     name = os.path.basename(path)
+    CF.ensure_local(path, CLOUD["timeout"], log=log)     # iCloud placeholder -> download and wait
     times = None
     if path.lower().endswith(".nd2"):
         import nd2
@@ -410,6 +414,7 @@ def read_nd2_metadata(path):
     slice_meta = {z_index: {'slice_...': value}} (recorded per slice: time, stage, laser, HV...)."""
     import nd2
     fm, sm = {}, {}
+    CF.ensure_local(path, CLOUD["timeout"], log=log)
     with nd2.ND2File(path) as f:
         ti = f.text_info or {}
         fm["acq_datetime"] = ti.get("date")
@@ -2247,6 +2252,15 @@ def build_parser():
     ap.add_argument("--qc-model", default=None,
                     help="trained quality-check model (.joblib, made on the app's Models page): adds the "
                          "probability that a file has a problem to the 'quality' sheet")
+    ap.add_argument("--cloud-wait-min", type=float, default=15,
+                    help="files in iCloud Drive that are not on this computer are downloaded first; wait up to "
+                         "this long for a folder's downloads before moving it to the end of the queue (default 15)")
+    ap.add_argument("--cloud-retries", type=int, default=3,
+                    help="how many times a folder whose files are not available is tried before it is skipped "
+                         "(default 3)")
+    ap.add_argument("--keep-downloaded", action="store_true",
+                    help="keep the local copies of files that had to be downloaded from iCloud (default: after "
+                         "each folder they are removed again to free disk space; the files stay in iCloud)")
     ap.add_argument("--gui", action="store_true", help=argparse.SUPPRESS)
     return ap
 
@@ -2303,6 +2317,11 @@ def main(argv=None):
         ap.error("--t-interval must be > 0")
     if P.workers < 1:
         ap.error("--workers must be >= 1")
+    if P.cloud_wait_min <= 0:
+        ap.error("--cloud-wait-min must be > 0")
+    if P.cloud_retries < 1:
+        ap.error("--cloud-retries must be >= 1")
+    CLOUD["timeout"] = P.cloud_wait_min * 60
     for nm in ("sigma_bg_um", "sigma_st_um", "tile_um", "edge_um", "pore_min_dist_um", "hotspot_sigma_um",
                "min_fiber_length_um"):
         if getattr(P, nm) <= 0:
@@ -2366,10 +2385,16 @@ def main(argv=None):
         sys.exit("no .nd2/.tif files found" + (f" matching --file '{P.file}'" if P.file else ""))
     multi = len(folders) > 1
     t_all = time.time()
-    parts = []
-    for k, (fo, files) in enumerate(jobs, 1):
+    parts_of = {}                                    # folder number -> its date summaries
+    queue = list(enumerate(jobs, 1))
+    tries, skipped = {}, []
+    while queue:
+        k, (fo, files) = queue.pop(0)
+        tries[k] = tries.get(k, 0) + 1
         if multi:
-            log(f"=== folder {k}/{len(jobs)}: {fo}")
+            log(f"=== folder {k}/{len(jobs)}: {fo}" + (f" (try {tries[k]} of {P.cloud_retries})" if tries[k] > 1 else ""))
+        elif tries[k] > 1:
+            log(f"=== try {tries[k]} of {P.cloud_retries}")
         if P.results_root:
             sub = os.path.basename(fo.rstrip("/\\")) or f"folder{k}"
             names = [os.path.basename(f2.rstrip("/\\")) for f2, _ in jobs]
@@ -2379,8 +2404,40 @@ def main(argv=None):
                 else os.path.join(P.results_root, sub, results_tag(files))
         else:
             out = os.path.join(fo, results_tag(files)) if (multi or not P.out) else P.out
-        for res, date, frames in analyse_folder(P, fo, files, out, hs_given):
-            parts.append((fo, res, date) + tuple(frames))
+        # files in iCloud only: download the whole folder first (all at once), then analyse it
+        problems = CF.wait_all(files, CLOUD["timeout"], log=log)
+        if not problems:
+            try:
+                parts_of[k] = [(fo, res, date) + tuple(frames)
+                               for res, date, frames in analyse_folder(P, fo, files, out, hs_given)]
+            except OSError as e:                     # e.g. a file removed from this computer during the run
+                bad = e if isinstance(e, CF.FileUnavailable) else None
+                if bad is None:
+                    gone = [f for f in files if CF.state(f) != "ok"]
+                    bad = CF.FileUnavailable(gone[0] if gone else getattr(e, "filename", None) or fo,
+                                             str(e), permanent=not gone)
+                problems = [(bad.path, bad)]
+        if not P.keep_downloaded:
+            CF.evict(files, log=log)
+        if not problems:
+            continue
+        for path, e in problems:
+            log(f"  WARNING: {e}")
+        permanent = any(e.permanent for _, e in problems)
+        if not permanent and tries[k] < P.cloud_retries:
+            log("  WARNING: folder moved to the end of the queue; it is tried again after the other folders")
+            queue.append((k, (fo, files)))
+        else:
+            log("  ERROR: folder skipped" + ("" if permanent else f" after {tries[k]} tries"))
+            skipped.append((fo, problems))
+    parts = [p for k in sorted(parts_of) for p in parts_of[k]]
+    if skipped:
+        log(f"WARNING: {len(skipped)} folder(s) were not analysed:")
+        for fo, problems in skipped:
+            log(f"  WARNING: {fo}: " + "; ".join(str(e) for _, e in problems))
+        log("  Run them again once their files are on this computer (or copied again, if a file is broken).")
+    if not parts_of:
+        sys.exit("no folder could be analysed (see the warnings above)")
     if multi:
         if P.out:
             base = P.out if not os.path.isdir(P.out) else os.path.join(P.out, "summary")
@@ -2391,7 +2448,7 @@ def main(argv=None):
             base = os.path.join(os.path.commonpath([fo for fo, _ in jobs]), "summary")
         os.makedirs(os.path.dirname(base) or ".", exist_ok=True)
         written = write_combined(base, parts)
-        log(f"combined summary of {len(jobs)} folder(s) -> {written}")
+        log(f"combined summary of {len(parts_of)} folder(s) -> {written}")
         emit("OUT", "summary", written)
         log(f"Total run time for all folders: {Progress._t(time.time() - t_all)} (min:s)")
     emit("DONE", round(time.time() - t_all, 1))

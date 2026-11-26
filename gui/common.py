@@ -4,6 +4,7 @@ import re
 import sys
 
 import collagen_core as core
+import cloudfiles as CF
 
 APP_NAME = "Collagen Reflectance Analyzer"
 APP_VERSION = "1.0"
@@ -92,7 +93,10 @@ def parse_file_name(path, after_pattern="AMF"):
 
 
 def read_header(path):
-    """Shape, type and pixel size of an image file without loading the pixels."""
+    """Shape, type and pixel size of an image file without loading the pixels.
+    A file that is only in iCloud is not opened (that would download it): {'cloud': True}."""
+    if CF.is_cloud_only(path):
+        return dict(cloud=True)
     try:
         if path.lower().endswith(".nd2"):
             import nd2

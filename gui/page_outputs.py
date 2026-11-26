@@ -134,6 +134,19 @@ class OutputsPage(Page):
         row.layout().setStretch(1, 1)
         gl.addWidget(row)
         self.lay.addWidget(g)
+
+        # --- iCloud Drive
+        g = QGroupBox("Files in iCloud Drive")
+        gl = QVBoxLayout(g)
+        gl.addWidget(hint("Files that are only in iCloud (not downloaded to this computer) are downloaded when "
+                          "their folder is analysed. A folder whose files do not arrive in time is tried again "
+                          "after the other folders."))
+        self.free_space = QCheckBox("Free disk space: after each folder, remove the local copies of the files the "
+                                    "run had to download (they stay in iCloud)")
+        self.free_space.setChecked(True)
+        self.free_space.toggled.connect(self._sync)
+        gl.addWidget(self.free_space)
+        self.lay.addWidget(g)
         self.lay.addStretch(1)
 
         self.loc_next.toggled.connect(self._sync)
@@ -224,6 +237,8 @@ class OutputsPage(Page):
             a.append("--no-tiles")
         if self.qc_on.isChecked() and self.qc_path.text():
             a += ["--qc-model", self.qc_path.text()]
+        if not self.free_space.isChecked():
+            a.append("--keep-downloaded")
         return a
 
     def results_root(self):
@@ -234,7 +249,8 @@ class OutputsPage(Page):
         return dict(custom=self.loc_custom.isChecked(), path=self.loc_path.text(), detail=self.det_full.isChecked(),
                     figs={k: cb.isChecked() for k, cb in self.fig_cb.items()}, share_y=self.share_y.isChecked(),
                     fmt=self.fmt.currentIndex(), dpi_default=self.dpi_default.isChecked(), dpi=self.dpi.value(),
-                    tiles=self.tiles.isChecked(), qc_on=self.qc_on.isChecked(), qc_path=self.qc_path.text())
+                    tiles=self.tiles.isChecked(), qc_on=self.qc_on.isChecked(), qc_path=self.qc_path.text(),
+                    free_space=self.free_space.isChecked())
 
     def save_settings(self):
         if getattr(self, "_loading", False):
@@ -258,6 +274,7 @@ class OutputsPage(Page):
         self.dpi_default.setChecked(st.get("dpi_default", True))
         self.dpi.setValue(st.get("dpi", 300))
         self.tiles.setChecked(st.get("tiles", True))
+        self.free_space.setChecked(st.get("free_space", True))
         self.qc_path.setText(st.get("qc_path", ""))
         self.qc_on.setChecked(st.get("qc_on", False) and bool(st.get("qc_path")))
         self._loading = False

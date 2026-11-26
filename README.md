@@ -80,6 +80,16 @@ The **Experiment Planner** page pairs each After-AMF file with its sample's Befo
 nanocage settings change a metric you choose (e.g. alignment S), and suggests the next conditions to test (Gaussian
 process + expected improvement), with ready-made file names. It also makes a space-filling starting design. See section 15.
 
+### Files in iCloud Drive
+
+Data in iCloud Drive with "Optimize Mac Storage" may be only a placeholder on the Mac, and macOS can remove the local copy
+again during a run. The analysis now downloads a folder's files before analysing it (all at once) and re-downloads a file
+that disappears mid-run. A folder whose files do not arrive within 15 min (`--cloud-wait-min`) goes to the end of the
+queue and is tried again after the others (up to 3 times, `--cloud-retries`); an empty or broken file skips only its
+folder, and the log lists the skipped folders at the end. After each folder the local copies of the files the run had to
+download are removed again (Outputs page → *Free disk space*, or `--keep-downloaded` to keep them). The Data page shows
+such files as "in iCloud" without downloading them.
+
 The full **user manual** is in the app (**Help** page) and in [`docs/User_Manual.pdf`](docs/User_Manual.pdf).
 
 ### File names
@@ -135,6 +145,7 @@ To build on your own computer: `pip install -r requirements.txt pyinstaller`, th
 |---|---|
 | `CollagenAnalyzer.py` | start file of the app |
 | `collagen_core.py` | analysis engine (image processing, metrics, figures, spreadsheets) |
+| `cloudfiles.py` | waits for iCloud Drive downloads and frees the local copies again |
 | `gui/` | the app's windows and pages |
 | `docs/` | user manual (HTML + PDF) and its screenshots |
 | `assets/` | icon and start screen |
