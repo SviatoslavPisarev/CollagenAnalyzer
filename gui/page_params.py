@@ -16,6 +16,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 
 import collagen_core as core
+from ml import fibermodel as FM
 from .common import DEFAULTS, NUMERIC, GROUPS
 from .widgets import Page, Card, button, hint, hbox
 from . import style
@@ -90,18 +91,34 @@ class ParamsPage(Page):
         self.thr_value.setDecimals(4)
         self.thr_value.setSingleStep(0.005)
         self.thr_value.setValue(0.19)
-        for b in (self.thr_per, self.thr_shared, self.thr_fixed):
+        self.thr_model = QRadioButton("Trained fiber model:")
+        self.fm_path = QLineEdit()
+        self.fm_path.setReadOnly(True)
+        self.fm_path.setPlaceholderText("paint and train one on the Fiber model page…")
+        self.fm_cut = QDoubleSpinBox()
+        self.fm_cut.setRange(0.05, 0.95)
+        self.fm_cut.setDecimals(2)
+        self.fm_cut.setSingleStep(0.05)
+        self.fm_cut.setValue(0.5)
+        self.fm_cut.setPrefix("p > ")
+        self.fm_cut.setToolTip("A pixel is fiber when the model's fiber probability is above this value")
+        for b in (self.thr_per, self.thr_shared, self.thr_fixed, self.thr_model):
             self.thr_group.addButton(b)
         gl.addWidget(self.thr_per)
         gl.addWidget(self.thr_shared)
         gl.addWidget(hbox(self.thr_fixed, self.thr_value))
+        row = hbox(self.thr_model, self.fm_path, button("Choose…", slot=self.browse_fiber_model), self.fm_cut,
+                   stretch_end=False)
+        row.layout().setStretch(1, 1)
+        gl.addWidget(row)
         gl.addWidget(hint("Per-file Otsu adapts to laser/gain differences but can partly hide real density changes. "
                           "For before-vs-after claims a fixed value (same for both files) is the stricter test. "
                           "The value is a ridge-filter score (no units), typically 0.1–0.3; higher = stricter."))
         self.thr_per.setChecked(True)
-        for b in (self.thr_per, self.thr_shared, self.thr_fixed):
+        for b in (self.thr_per, self.thr_shared, self.thr_fixed, self.thr_model):
             b.toggled.connect(self._sync)
         self.thr_value.valueChanged.connect(self._sync)
+        self.fm_cut.valueChanged.connect(self._sync)
         ll.addWidget(g)
 
         # --- hotspot
@@ -249,6 +266,9 @@ class ParamsPage(Page):
         v["ridge_sigmas_um"] = self.ridge.text().strip()
         v["threshold_mode"] = "shared" if self.thr_shared.isChecked() else "per-file"
         v["threshold"] = self.thr_value.value() if self.thr_fixed.isChecked() else None
+        v["fiber_model"] = self.fm_path.text() if self.thr_model.isChecked() and self.fm_path.text() else None
+        v["fiber_model_path"] = self.fm_path.text()
+        v["fiber_cutoff"] = self.fm_cut.value()
         if self.hs_auto.isChecked():
             v["hotspot"] = "auto"
         elif self.hs_none.isChecked():
@@ -269,7 +289,11 @@ class ParamsPage(Page):
         if "ridge_sigmas_um" in v:
             r = v["ridge_sigmas_um"]
             self.ridge.setText(r if isinstance(r, str) else ",".join(f"{x:g}" for x in r))
-        if v.get("threshold") is not None:
+        self.fm_path.setText(v.get("fiber_model_path") or v.get("fiber_model") or "")
+        self.fm_cut.setValue(float(v.get("fiber_cutoff") or 0.5))
+        if v.get("fiber_model"):
+            self.thr_model.setChecked(True)
+        elif v.get("threshold") is not None:
             self.thr_fixed.setChecked(True)
             self.thr_value.setValue(float(v["threshold"]))
         elif v.get("threshold_mode") == "shared":
@@ -299,6 +323,7 @@ class ParamsPage(Page):
     def defaults(self):
         d = {k: DEFAULTS[k] for k in self.w}
         d.update(ridge_sigmas_um=DEFAULTS["ridge_sigmas_um"], threshold_mode="per-file", threshold=None,
+                 fiber_model=None, fiber_model_path=self.fm_path.text(), fiber_cutoff=0.5,
                  hotspot="auto", stack_axis="auto", t_interval=None, after_pattern="AMF", pixel_size=None, z_step=None)
         return d
 
@@ -317,6 +342,13 @@ class ParamsPage(Page):
             re.compile(v["after_pattern"])
         except re.error as e:
             return f"‘After-AMF files contain’ is not a valid pattern: {e}"
+        if self.thr_model.isChecked():
+            if not os.path.isfile(self.fm_path.text()):
+                return "Trained fiber model: choose a model file, or train one on the Fiber model page."
+            try:
+                FM.load_model(self.fm_path.text())
+            except Exception as e:
+                return f"The fiber model cannot be used: {e}"
         if self.data_page.needs_pixel_size() and v["pixel_size"] is None:
             return "Some TIFF files have no pixel size: tick ‘Pixel size’ under TIFF calibration and enter it."
         return None
@@ -329,7 +361,9 @@ class ParamsPage(Page):
             if val != DEFAULTS[k] or k in ("zstep", "tstep", "workers"):
                 a += [f"--{k.replace('_', '-')}", f"{val:g}" if isinstance(val, float) else str(val)]
         a += ["--ridge-sigmas-um", v["ridge_sigmas_um"].replace(" ", "")]
-        if v["threshold"] is not None:
+        if v["fiber_model"]:
+            a += ["--fiber-model", v["fiber_model"], "--fiber-cutoff", f"{v['fiber_cutoff']:g}"]
+        elif v["threshold"] is not None:
             a += ["--threshold", f"{v['threshold']:g}"]
         else:
             a += ["--threshold-mode", v["threshold_mode"]]
@@ -351,12 +385,15 @@ class ParamsPage(Page):
         for k, val in v.items():
             setattr(P, k, val)
         P.ridge_sigmas_um = [float(x) for x in v["ridge_sigmas_um"].split(",")]
+        del P.fiber_model_path
         return P
 
     def _sync(self, *_):
         if not self._ready:
             return
         self.thr_value.setEnabled(self.thr_fixed.isChecked())
+        self.fm_path.setEnabled(self.thr_model.isChecked())
+        self.fm_cut.setEnabled(self.thr_model.isChecked())
         for s_ in (self.hs_x, self.hs_y, self.hs_r):
             s_.setEnabled(self.hs_manual.isChecked())
         self.t_int.setEnabled(self.t_int_on.isChecked())
@@ -457,13 +494,18 @@ class ParamsPage(Page):
         valid = core.analysis_mask(s.shape[2:], hs, edge=G["edge"])
         img = s[t, z]
         flat = core.flatten(img, G["sigma_bg"])
-        rdg = core.ridge(flat, G["ridge_sigmas"])
-        otsu = core.otsu_threshold(rdg[valid])
+        if P.fiber_model:                           # fiber probability; "Otsu" value = the chosen cutoff
+            rdg = FM.probability(flat, px, FM.load_model(P.fiber_model))
+            otsu = P.fiber_cutoff
+        else:
+            rdg = core.ridge(flat, G["ridge_sigmas"])
+            otsu = core.otsu_threshold(rdg[valid])
         return dict(path=path, img=img, flat=flat, ridge=rdg, valid=valid, hs=hs, G=G, px=px, otsu=otsu,
                     t=t, z=z, n=len(frames), shape=s.shape, P=P)
 
     def _loaded(self, pv):
         self._pv = pv
+        self.pv_thr.setRange(10, 990 if pv["P"].fiber_model else 800)
         self.pv_slice.setMaximum(pv["n"] - 1)
         P = pv["P"]
         thr = P.threshold if P.threshold is not None else pv["otsu"]
@@ -487,7 +529,22 @@ class ParamsPage(Page):
         if self._pv:
             self.pv_thr.setValue(int(round(self._pv["otsu"] * 1000)))
 
+    def browse_fiber_model(self):
+        p, _ = QFileDialog.getOpenFileName(self, "Fiber model", os.path.dirname(self.fm_path.text()),
+                                           "Fiber model (*.joblib)")
+        if p:
+            self.set_fiber_model(p)
+
+    def set_fiber_model(self, path):
+        """Use this fiber model (called by the Fiber model page after saving)."""
+        self.fm_path.setText(path)
+        self.thr_model.setChecked(True)
+        self._sync()
+
     def use_threshold(self):
+        if self._pv and self._pv["P"].fiber_model:
+            self.fm_cut.setValue(round(self._pv["thr"], 2))
+            return
         if self._pv:
             self.thr_fixed.setChecked(True)
             self.thr_value.setValue(round(self._pv["thr"], 4))
@@ -559,15 +616,20 @@ class ParamsPage(Page):
         else:
             self._mask_artist.set_data(rgb)
         af = 100 * (mask & valid).sum() / valid.sum()
-        a.set_title(f"Fiber mask (red), threshold {pv['thr']:.3f}: {af:.1f} % fiber", fontsize=9)
-        self.pv_thr_label.setText(f"threshold {pv['thr']:.3f}")
+        model = bool(pv["P"].fiber_model)
+        what = "probability cutoff" if model else "threshold"
+        a.set_title(f"Fiber mask (red), {what} {pv['thr']:.3f}: {af:.1f} % fiber", fontsize=9)
+        self.pv_thr_label.setText(f"{what} {pv['thr']:.3f}")
         t, z = pv["t"], pv["z"]
         where = (f"t = {t}, " if pv["shape"][0] > 1 else "") + (f"z = {z}" if pv["shape"][1] > 1 else "single image")
+        thr_txt = (f"Trained fiber model {os.path.basename(pv['P'].fiber_model)}: fiber = probability > cutoff "
+                   f"(set {pv['otsu']:.2f})." if model else
+                   f"Otsu threshold of this image: {pv['otsu']:.4f} (a run uses up to 12 images of the file, so it "
+                   f"can differ slightly).")
         self.pv_info.setText(
             f"{os.path.basename(pv['path'])} — {where}; pixel {px:.4f} µm; "
             f"hotspot {'none' if not pv['hs'] else ', '.join(map(str, pv['hs'])) + ' px (x, y, r)'}.  "
-            f"Otsu threshold of this image: {pv['otsu']:.4f} (a run uses up to 12 images of the file, so it can "
-            f"differ slightly). Fiber area {af:.2f} %.")
+            f"{thr_txt} Fiber area {af:.2f} %.")
         if draw:
             self.canvas.draw_idle()
 

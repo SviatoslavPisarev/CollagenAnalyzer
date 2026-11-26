@@ -16,6 +16,7 @@ from .page_plots import PlotsPage
 from .page_models import ModelsPage, read_quality
 from .page_planner import PlannerPage
 from .page_patterns import PatternsPage
+from .page_fibermodel import FiberModelPage
 from .widgets import Page, button, hbox
 
 
@@ -48,7 +49,7 @@ SECTIONS = [("ANALYSE", [("data", "1   Data"), ("params", "2   Parameters"), ("o
                          ("run", "4   Run")]),
             ("EXPLORE", [("plots", "◆   Results & Plots"), ("patterns", "▦   Patterns")]),
             ("PLAN", [("planner", "◈   Experiment Planner")]),
-            ("MODELS", [("models", "◇   Quality check")]),
+            ("MODELS", [("models", "◇   Quality check"), ("fibermodel", "◇   Fiber model")]),
             (None, [("help", "?   Help")])]
 NAV = [p for _, pages in SECTIONS for p in pages]
 
@@ -120,11 +121,13 @@ class MainWindow(QMainWindow):
         self.patterns = PatternsPage()
         self.planner = PlannerPage()
         self.models = ModelsPage()
+        self.fibermodel = FiberModelPage(self.data, self.params)
         self.help = HelpPage()
         for p in (self.data, self.params, self.outputs, self.run, self.plots, self.patterns, self.planner, self.models,
-                  self.help):
+                  self.fibermodel, self.help):
             self.stack.addWidget(p)
         self.models.model_saved.connect(self.outputs.set_qc_model)
+        self.fibermodel.model_saved.connect(self.params.set_fiber_model)
         # back / next buttons on the setup pages
         for i, p in enumerate((self.data, self.params, self.outputs)):
             if i > 0:

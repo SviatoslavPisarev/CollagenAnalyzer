@@ -104,6 +104,7 @@ try:
 except ImportError:                      # collagen_core.py copied on its own, without the ml/ folder
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from ml import qc as QC
+from ml import fibermodel as FM
 
 ANGLE_BINS = 36                      # 5-degree bins over -90..90 deg
 BEFORE_COLOR, AFTER_COLOR = "#3b6fb6", "#d9622b"
@@ -1107,7 +1108,8 @@ def geometry(px, P):
                 pore_min_dist=max(int(round(P.pore_min_dist_um / px)), 1),
                 hotspot_sigma=P.hotspot_sigma_um / px,
                 min_fiber_len=P.min_fiber_length_um / px,
-                tiles=not getattr(P, "no_tiles", False))
+                tiles=not getattr(P, "no_tiles", False),
+                fiber_model=getattr(P, "fiber_model", None))
 
 
 def analyse_slice(img, valid, thr, G, full=False):
@@ -1115,7 +1117,10 @@ def analyse_slice(img, valid, thr, G, full=False):
     Returns (metrics dict, aux dict); aux holds images only when full=True."""
     px = G["px"]
     flat = flatten(img, G["sigma_bg"])
-    rdg = ridge(flat, G["ridge_sigmas"])
+    if G.get("fiber_model"):            # trained pixel classifier: thr = probability cutoff
+        rdg = FM.probability(flat, px, FM.load_model(G["fiber_model"]))
+    else:                               # ridge filter: thr = ridge threshold
+        rdg = ridge(flat, G["ridge_sigmas"])
     mask = remove_small(rdg > thr, G["min_obj_px"])
     fib = mask & valid
     vf = valid.sum()
@@ -1943,7 +1948,10 @@ def global_settings(P, threshold_source, run_time, single_file, detail):
             ("mode", "per-slice detail" if detail else "averages only",
              "per-slice detail: a folder per file with a figure of every analysed image (default); "
              "--averages-only: comparisons and one figure per file"),
-            ("threshold_mode", "fixed" if P.threshold is not None else P.threshold_mode,
+            ("fiber_model", P.fiber_model or "", FM.describe(FM.load_model(P.fiber_model)) if P.fiber_model
+             else "none: fiber mask = ridge filter > threshold"),
+            ("threshold_mode", "fiber model" if P.fiber_model else "fixed" if P.threshold is not None
+             else P.threshold_mode,
              f"fiber threshold on the ridge image: {threshold_source}"),
             ("zstep", P.zstep, "every Nth z-slice analysed"),
             ("tstep", P.tstep, "every Nth time point analysed (time-lapses)"),
@@ -2190,6 +2198,11 @@ def build_parser():
                     help="time between time points, s (only if the file does not contain it, e.g. some TIFFs)")
     ap.add_argument("--threshold", type=float, default=None,
                     help="fixed ridge threshold for every file (overrides --threshold-mode)")
+    ap.add_argument("--fiber-model", default=None,
+                    help="trained fiber model (.joblib, made on the app's Fiber model page): the fiber mask is "
+                         "'fiber probability > --fiber-cutoff' instead of a ridge threshold")
+    ap.add_argument("--fiber-cutoff", type=float, default=0.5,
+                    help="probability above which a pixel is fiber, with --fiber-model (default 0.5)")
     ap.add_argument("--threshold-mode", choices=["per-file", "shared"], default="per-file",
                     help="per-file: Otsu threshold of each file (default); shared: one Otsu threshold "
                          "pooled over all files")
@@ -2264,6 +2277,15 @@ def main(argv=None):
         bad = FIG["keys"] - set(FIGURE_KEYS)
         if bad:
             ap.error(f"--figures: unknown {', '.join(sorted(bad))}; choose from {', '.join(FIGURE_KEYS)}")
+    if P.fiber_model:
+        if not os.path.isfile(P.fiber_model):
+            ap.error(f"--fiber-model: file not found: {P.fiber_model}")
+        try:
+            FM.load_model(P.fiber_model)
+        except Exception as e:
+            ap.error(f"--fiber-model: {e}")
+        if not 0 < P.fiber_cutoff < 1:
+            ap.error("--fiber-cutoff must be between 0 and 1")
     if P.qc_model and not os.path.isfile(P.qc_model):
         ap.error(f"--qc-model: file not found: {P.qc_model}")
     if P.dpi is not None and not 30 <= P.dpi <= 1200:
@@ -2394,7 +2416,14 @@ def analyse_folder(P, folder, files, out, hs_given):
         out = os.path.join(out, single_file)
         os.makedirs(os.path.join(out, "slices"), exist_ok=True)
     os.makedirs(out, exist_ok=True)
-    if P.threshold is not None:
+    if P.fiber_model:
+        threshold_source = (f"trained fiber model {os.path.basename(P.fiber_model)}: fiber = probability > "
+                            f"{P.fiber_cutoff:g} (the ±10 % QC columns move this cutoff)")
+        fm_bg = FM.load_model(P.fiber_model).get("sigma_bg_um")
+        if fm_bg is not None and abs(fm_bg - P.sigma_bg_um) > 1e-6:
+            log(f"WARNING: the fiber model was trained with background flattening {fm_bg:g} µm, this run uses "
+                f"{P.sigma_bg_um:g} µm — the model may not fit")
+    elif P.threshold is not None:
         threshold_source = "fixed value (--threshold), same for every file"
     elif P.threshold_mode == "shared":
         threshold_source = "Otsu pooled over all files, same for every file"
@@ -2485,7 +2514,7 @@ def analyse_folder(P, folder, files, out, hs_given):
                           shape=s.shape, G=G, meta=fmeta, slice_meta=smeta,
                           zpos=None, zsrc="")
         data[name]["zpos"], data[name]["zsrc"] = z_positions(smeta, s.shape[0], s.shape[1], dz, name)
-        if P.threshold is None:
+        if P.threshold is None and not P.fiber_model:
             # ridge values of up to 12 analysed images spread through the file. Per-file threshold:
             # all analysed pixels of those images (no random sampling, so it is exactly
             # reproducible). Shared threshold: a fixed-seed sample of each file is pooled.
@@ -2506,7 +2535,10 @@ def analyse_folder(P, folder, files, out, hs_given):
         PROGRESS.step()
     PROGRESS.finish()
     t_phase["reading files"] = time.time() - t_start
-    if P.threshold is not None:
+    if P.fiber_model:
+        for d in data.values():
+            d["thr"] = P.fiber_cutoff
+    elif P.threshold is not None:
         for d in data.values():
             d["thr"] = P.threshold
     elif P.threshold_mode == "shared":

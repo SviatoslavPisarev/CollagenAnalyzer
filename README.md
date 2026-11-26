@@ -68,6 +68,12 @@ The **Patterns** page clusters the per-tile table into structure types (Gaussian
 metrics), names them ("aligned, sparse", …), and shows how their share changes after AMF per sample, where they sit in the
 image (tile maps, before and after side by side) and how the tiles spread (PCA / t-SNE). See section 16.
 
+### Fiber model (new)
+
+On the **Fiber model** page you paint a few fiber / background strokes on some images, train a pixel classifier
+(random forest on multi-scale filter responses) and check its mask against the ridge + Otsu mask. Saved, it replaces the
+ridge threshold for new runs (Parameters page → Fiber threshold → Trained fiber model). See section 17.
+
 ### Experiment Planner (new)
 
 The **Experiment Planner** page pairs each After-AMF file with its sample's Before-AMF file, models how the AMF and

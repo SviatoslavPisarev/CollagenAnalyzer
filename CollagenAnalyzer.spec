@@ -15,7 +15,8 @@ hiddenimports = collect_submodules("skimage.filters") + collect_submodules("skim
                                              "sklearn.model_selection", "sklearn.metrics",
                                              "sklearn.gaussian_process", "scipy.stats", "ml.planner",
                                              "ml.patterns", "sklearn.mixture", "sklearn.cluster",
-                                             "sklearn.manifold", "sklearn.decomposition"]
+                                             "sklearn.manifold", "sklearn.decomposition",
+                                             "ml.fibermodel"]
 for pkg in ("nd2", "ome_types", "resource_backed_dask_array", "tifffile", "imagecodecs"):
     try:
         d, b, h = collect_all(pkg)
