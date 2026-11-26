@@ -52,7 +52,8 @@ AMF treatment, across samples and across experiments, and makes publication-read
 <a href="#trouble">12. Troubleshooting</a><br>
 <a href="#cli">13. Command line (optional)</a><br>
 <a href="#qc">14. Quality check and the per-tile table</a><br>
-<a href="#planner">15. Experiment Planner</a></p>
+<a href="#planner">15. Experiment Planner</a><br>
+<a href="#patterns">16. Patterns (tile types)</a></p>
 </div>
 
 <h2 id="install"><a name="install"></a>1. Installing and starting the app</h2>
@@ -430,5 +431,21 @@ others (leave-one-out) — if R² there is low, trust the uncertainty more than 
 <p><b>Starting design.</b> With fewer than about 6 experiments, make a starting design: experiments spread evenly over the
 ranges (Latin hypercube). Then repeat: run the suggested experiments, analyse them, fit again. Include replicates of a few
 conditions so that the model can estimate the noise, and keep controls (AMF without NCs, NCs without AMF) in the same runs.</p>
+<h2 id="patterns" class="newpage"><a name="patterns"></a>16. Patterns (tile types)</h2>
+<p>Remodeling may be local — near the nanocages, or in one part of the gel — so an image-wide average can hide it. The
+Patterns page groups all tiles of all images into a few <b>tile types</b> using only their structure numbers (it is not told
+which file is before or after AMF), then shows how the share of each type changes after AMF and where the types sit.</p>
+<p><b>1. Tiles.</b> The tile tables (<code>mmddyy_tiles.csv</code>) of each run are added automatically; older ones can be loaded.
+Dark or blurred tiles and files marked <i>check</i> are left out by default.</p>
+<p><b>2. What describes a tile.</b> Default: fiber density, fiber length density, pore size, fiber thickness, alignment S and
+coherency. Reflectance depends on laser power and gain — include it only when those were identical. Size-like numbers are
+log-transformed, and all numbers are standardised so that each counts equally.</p>
+<p><b>3. Group the tiles.</b> A Gaussian mixture (or k-means) finds <i>k</i> types; <b>Suggest k</b> compares k = 2–8 by BIC
+(lower = better). Prefer a small k you can interpret when the BIC curve is flat.</p>
+<p><b>Results.</b> <i>Tile types</i>: how each type differs from the average tile (in SD units) and an automatic name such as
+“aligned, sparse”. <i>Before vs after</i>: the share of each type per file, and the change after AMF per sample (percentage
+points) — use samples, not tiles, as replicates for statistics. <i>Tile map</i>: the types at their positions in an image, before
+and after side by side. <i>Tile space</i>: every tile as a dot (PCA or t-SNE), coloured by type, condition, sample or depth.
+<b>Export results (Excel)</b> saves the types, shares, changes and every tile with its type.</p>
 </body>
 </html>

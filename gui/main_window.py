@@ -15,6 +15,7 @@ from .page_run import RunPage
 from .page_plots import PlotsPage
 from .page_models import ModelsPage, read_quality
 from .page_planner import PlannerPage
+from .page_patterns import PatternsPage
 from .widgets import Page, button, hbox
 
 
@@ -45,7 +46,7 @@ class HelpPage(Page):
 # sidebar: sections (None = no heading) with their pages, in page order
 SECTIONS = [("ANALYSE", [("data", "1   Data"), ("params", "2   Parameters"), ("outputs", "3   Outputs"),
                          ("run", "4   Run")]),
-            ("EXPLORE", [("plots", "◆   Results & Plots")]),
+            ("EXPLORE", [("plots", "◆   Results & Plots"), ("patterns", "▦   Patterns")]),
             ("PLAN", [("planner", "◈   Experiment Planner")]),
             ("MODELS", [("models", "◇   Quality check")]),
             (None, [("help", "?   Help")])]
@@ -116,10 +117,12 @@ class MainWindow(QMainWindow):
         self.outputs = OutputsPage(self.data)
         self.run = RunPage(self.data, self.params, self.outputs)
         self.plots = PlotsPage()
+        self.patterns = PatternsPage()
         self.planner = PlannerPage()
         self.models = ModelsPage()
         self.help = HelpPage()
-        for p in (self.data, self.params, self.outputs, self.run, self.plots, self.planner, self.models, self.help):
+        for p in (self.data, self.params, self.outputs, self.run, self.plots, self.patterns, self.planner, self.models,
+                  self.help):
             self.stack.addWidget(p)
         self.models.model_saved.connect(self.outputs.set_qc_model)
         # back / next buttons on the setup pages
@@ -151,6 +154,12 @@ class MainWindow(QMainWindow):
             self.stack.setCurrentIndex(self.page_of_row[row])
 
     def _run_done(self, outputs):
+        tiles = [p for k, p in outputs if k == "tiles"]
+        if tiles:
+            try:
+                self.patterns.load_paths(tiles)
+            except Exception:
+                pass
         books = [p for k, p in outputs if k == "workbook"]
         if books:
             self.plots.load_paths(books)

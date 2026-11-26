@@ -62,6 +62,12 @@ On the **Quality check** page you can train a model on your own labelled files (
 file name marks a problem) and apply it to new runs. Each run also writes **mmddyy_tiles.csv**, the metrics of every
 13 µm tile, for finding local patterns. See section 14 of the manual.
 
+### Patterns (new)
+
+The **Patterns** page clusters the per-tile table into structure types (Gaussian mixture or k-means on standardised tile
+metrics), names them ("aligned, sparse", …), and shows how their share changes after AMF per sample, where they sit in the
+image (tile maps, before and after side by side) and how the tiles spread (PCA / t-SNE). See section 16.
+
 ### Experiment Planner (new)
 
 The **Experiment Planner** page pairs each After-AMF file with its sample's Before-AMF file, models how the AMF and
