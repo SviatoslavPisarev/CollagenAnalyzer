@@ -24,7 +24,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     continue-on-error: ${{ matrix.name == 'mac-intel' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Find the app folder
         shell: bash
         run: |
@@ -32,7 +32,7 @@ jobs:
           if [ -z "$SPEC" ]; then echo "CollagenAnalyzer.spec not found - upload all app files"; exit 1; fi
           echo "APPDIR=$(dirname "$SPEC")" >> "$GITHUB_ENV"
           echo "App folder: $(dirname "$SPEC")"
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Install packages
@@ -62,7 +62,7 @@ jobs:
         run: |
           Copy-Item docs/User_Manual.pdf dist/CollagenAnalyzer/ -ErrorAction SilentlyContinue
           Compress-Archive -Path dist/CollagenAnalyzer -DestinationPath "$env:GITHUB_WORKSPACE/CollagenAnalyzer-windows.zip"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: CollagenAnalyzer-${{ matrix.name }}
           path: CollagenAnalyzer-${{ matrix.name }}.zip
