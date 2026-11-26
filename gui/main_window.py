@@ -14,6 +14,7 @@ from .page_outputs import OutputsPage
 from .page_run import RunPage
 from .page_plots import PlotsPage
 from .page_models import ModelsPage, read_quality
+from .page_planner import PlannerPage
 from .widgets import Page, button, hbox
 
 
@@ -45,6 +46,7 @@ class HelpPage(Page):
 SECTIONS = [("ANALYSE", [("data", "1   Data"), ("params", "2   Parameters"), ("outputs", "3   Outputs"),
                          ("run", "4   Run")]),
             ("EXPLORE", [("plots", "◆   Results & Plots")]),
+            ("PLAN", [("planner", "◈   Experiment Planner")]),
             ("MODELS", [("models", "◇   Quality check")]),
             (None, [("help", "?   Help")])]
 NAV = [p for _, pages in SECTIONS for p in pages]
@@ -114,9 +116,10 @@ class MainWindow(QMainWindow):
         self.outputs = OutputsPage(self.data)
         self.run = RunPage(self.data, self.params, self.outputs)
         self.plots = PlotsPage()
+        self.planner = PlannerPage()
         self.models = ModelsPage()
         self.help = HelpPage()
-        for p in (self.data, self.params, self.outputs, self.run, self.plots, self.models, self.help):
+        for p in (self.data, self.params, self.outputs, self.run, self.plots, self.planner, self.models, self.help):
             self.stack.addWidget(p)
         self.models.model_saved.connect(self.outputs.set_qc_model)
         # back / next buttons on the setup pages
@@ -151,6 +154,10 @@ class MainWindow(QMainWindow):
         books = [p for k, p in outputs if k == "workbook"]
         if books:
             self.plots.load_paths(books)
+            try:
+                self.planner.load_paths(books)
+            except Exception:
+                pass
             qc = {}
             for b in books:
                 try:

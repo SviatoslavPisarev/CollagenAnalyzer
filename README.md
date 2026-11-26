@@ -62,6 +62,12 @@ On the **Quality check** page you can train a model on your own labelled files (
 file name marks a problem) and apply it to new runs. Each run also writes **mmddyy_tiles.csv**, the metrics of every
 13 µm tile, for finding local patterns. See section 14 of the manual.
 
+### Experiment Planner (new)
+
+The **Experiment Planner** page pairs each After-AMF file with its sample's Before-AMF file, models how the AMF and
+nanocage settings change a metric you choose (e.g. alignment S), and suggests the next conditions to test (Gaussian
+process + expected improvement), with ready-made file names. It also makes a space-filling starting design. See section 15.
+
 The full **user manual** is in the app (**Help** page) and in [`docs/User_Manual.pdf`](docs/User_Manual.pdf).
 
 ### File names

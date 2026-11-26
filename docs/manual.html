@@ -51,7 +51,8 @@ AMF treatment, across samples and across experiments, and makes publication-read
 <a href="#good">11. Good practice for comparisons</a><br>
 <a href="#trouble">12. Troubleshooting</a><br>
 <a href="#cli">13. Command line (optional)</a><br>
-<a href="#qc">14. Quality check and the per-tile table</a></p>
+<a href="#qc">14. Quality check and the per-tile table</a><br>
+<a href="#planner">15. Experiment Planner</a></p>
 </div>
 
 <h2 id="install"><a name="install"></a>1. Installing and starting the app</h2>
@@ -408,5 +409,26 @@ a <code>tile_flag</code> (dark / blurred). It is the input for finding local rem
 Excel, Prism or Python. Tiles less than 80 % inside the analysed area (image edge, hotspot) are left out. Switch it off on
 the Outputs page.</p>
 
+<h2 id="planner" class="newpage"><a name="planner"></a>15. Experiment Planner</h2>
+<p>The planner learns how your settings (AMF frequency, time, voltage, NC concentration, premixed / incubated, incubation time,
+collagen) change one structure metric, and suggests which conditions to test next — so that fewer gels are needed than for a
+full grid. Results of each run are added automatically; older results can be loaded like on Results &amp; Plots.</p>
+<p><b>Experiments.</b> Each After-AMF file is paired with the Before-AMF file(s) of the same sample (same <code>mmddyy_##_</code>,
+same results folder); the response is <i>after − before</i> or the <i>% change</i> of the chosen metric (file means). Pairing
+within a sample removes most of the gel-to-gel variation. Files the quality check marked <i>check</i> are left out (untick to
+keep them). The <b>Experiments</b> tab lists what was used.</p>
+<p><b>Settings to optimise.</b> Tick the settings that differ between experiments (ticked automatically when they vary in the
+data). <i>From</i>–<i>To</i> is the range in which suggestions may fall: widen it to the instrument's limits to explore.
+Suggestions are rounded to <i>Step</i>. <i>Log</i> treats equal ratios as equal steps (100→200 Hz like 500→1000 Hz).</p>
+<p><b>Fit model and suggest.</b> A Gaussian process (a smooth curve-fitting method that also gives its own uncertainty) is fitted
+to the experiments, and <i>expected improvement</i> picks the next experiments: points that are probably better than the best
+so far, or still very uncertain. Several suggestions are spread out so that one batch explores different places. The
+<b>Plan</b> tab gives each suggestion with its predicted response (± 1 SD) and a file name in the app's naming scheme;
+<b>Export plan (CSV)</b> saves it. <b>Response map</b> shows the prediction and its uncertainty over two settings;
+<b>Effects</b> shows each setting on its own and how relevant it is; <b>Model check</b> predicts each experiment from all the
+others (leave-one-out) — if R² there is low, trust the uncertainty more than the map.</p>
+<p><b>Starting design.</b> With fewer than about 6 experiments, make a starting design: experiments spread evenly over the
+ranges (Latin hypercube). Then repeat: run the suggested experiments, analyse them, fit again. Include replicates of a few
+conditions so that the model can estimate the noise, and keep controls (AMF without NCs, NCs without AMF) in the same runs.</p>
 </body>
 </html>
