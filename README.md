@@ -81,7 +81,7 @@ The full **user manual** is in the app (**Help** page) and in [`docs/User_Manual
 The app reads the experimental conditions from the file names, for example:
 
 ```
-112026_3_Collagen_3mgml_NC_0.5nM_inc45min_other-dried-edges_z_AMF_500Hz_3min_10Vpp_8.5V_1013.nd2
+112026_3_Collagen_3mgml_NC_0.5nM_inc45min_other-dried-edges_z_AMF_500Hz_3min_10Vpp_8.5V_2App_500turns_40mTpk_1013.nd2
 ```
 
 | Part | Meaning |
@@ -89,6 +89,8 @@ The app reads the experimental conditions from the file names, for example:
 | `mmddyy_##_` (start, required) | date and sample number; files with the same start are compared before vs after |
 | `AMF` | marks the After-AMF file |
 | `500Hz`, `3min`, `10Vpp`, `8.5V` | AMF frequency, time, Vp-p set on the instrument, measured voltage |
+| `2App`, `500turns` | AMF current Ap-p set on the power supply (not the measured current), coil turns (e.g. 200 or 500) |
+| `40mTpk` / `28mTrms` | measured magnetic field, peak or rms (also `mTpp`); converted to a peak value in `amf_b_peak_mT` |
 | `Collagen_3mgml` | collagen concentration |
 | `NC_0.5nM` | theoretical local nanocage concentration |
 | `premixed` / `inc45min` | NCs mixed in before gelation / incubated on the gel for that time |

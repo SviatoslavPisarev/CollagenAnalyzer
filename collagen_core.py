@@ -9,8 +9,9 @@ Files whose name contains "AMF" are labelled "After AMF", all others "Before AMF
 (change with --after-pattern).
 Also read from the name when present: _NC_0.5nM_ (theoretical local nanocage concentration),
 _premixed_ or _inc45min_ (NCs mixed in before gelation, or incubated on the gel for that time),
-_10Vpp_ (AMF Vp-p set on the instrument), _8.5V_ (measured AMF voltage)
-and _other-free-text_ (a note, saved in the "other" column).
+_10Vpp_ (AMF Vp-p set on the instrument), _8.5V_ (measured AMF voltage),
+_2App_ (AMF current Ap-p set on the power supply), _500turns_ (coil), _40mTpk_ / _28mTrms_ (measured
+magnetic field, peak or rms) and _other-free-text_ (a note, saved in the "other" column).
 
 Several folders can be given at once; each is analysed on its own (own thresholds,
 figures, spreadsheets) and a combined summary.xlsx is added (see below).
@@ -85,7 +86,7 @@ Usage:    python collagen_reflectance_analysis.py /path/to/folder
 Angles:   degrees counter-clockwise from the image x-axis, range -90..90
           (same convention as OrientationJ).
 """
-import argparse, os, sys, glob, re, time
+import argparse, os, sys, glob, math, re, time
 from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
 import numpy as np
@@ -109,7 +110,8 @@ BEFORE_COLOR, AFTER_COLOR = "#3b6fb6", "#d9622b"
 EXTRA_COLORS = ["#2a9d5c", "#8e44ad", "#c0392b", "#7f8c8d"]
 LABEL_COLS = ["date", "sample", "file", "collagen_mg_ml", "nc_conc_nM", "nc_mixing", "nc_incubation_time",
               "nc_incubation_time_s", "other", "condition", "amf_freq_hz", "amf_time", "amf_time_s",
-              "amf_vpp_set", "amf_v_measured",
+              "amf_vpp_set", "amf_v_measured", "amf_app_set", "amf_coil_turns", "amf_b_mT", "amf_b_type",
+              "amf_b_peak_mT", "amf_ampere_turns_pp",
               "series", "t_index", "time_s", "z_index", "z_um", "threshold", "qc_status", "qc_flags"]
 SERIES_NAME = {"z": "z-stack", "t": "time-lapse", "single": "single image"}
 LT_BIN_UM, LT_MAX_UM = 0.25, 60.0    # pore-size histogram: 0.25 µm bins up to 60 µm (+ overflow)
@@ -193,7 +195,9 @@ FIG = dict(keys=set(FIGURE_KEYS), fmt="png", dpi=None, gui=False)
 # values entered by hand in the app (--metadata): {"fields": [{key, label, unit, type}], "files": {name: {...}}}
 METADATA = {"fields": [], "files": {}}
 MANUAL_KEYS = {"condition": "condition", "amf_hz": "AMF frequency (Hz)", "amf_s": "AMF time (s)",
-               "amf_vpp": "AMF Vp-p set (V)", "amf_v": "AMF measured voltage (V)", "collagen_mgml": "collagen (mg/mL)",
+               "amf_vpp": "AMF Vp-p set (V)", "amf_v": "AMF measured voltage (V)",
+               "amf_app": "AMF Ap-p set (A)", "coil_turns": "coil turns", "amf_b": "magnetic field (mT)",
+               "amf_b_type": "field measured as", "collagen_mgml": "collagen (mg/mL)",
                "nc_nM": "NC concentration (nM)", "mixing": "NC mixing", "inc_s": "NC incubation time (s)",
                "other": "note"}
 
@@ -576,9 +580,51 @@ def fmt_volt(v, unit="V"):
     return f"{v:g} {unit}" if v is not None else None
 
 
+_PP = r"(?:pp|p-p|ptp|pk-pk|pkpk)"
+APP_RE = re.compile(rf"(?:(?<=[_\-])|^){_VNUM}A{_PP}(?=$|[_.]|-(?!p))", re.I)
+COIL_RE = re.compile(r"(?:(?<=[_\-])|^)(?:(\d+)\s*(?:turns?|trn)|coil[_\-]?(\d+)(?:\s*(?:turns?|trn))?)(?=$|[_.\-])",
+                     re.I)
+B_RE = re.compile(r"(?:(?<=[_\-])|^)(\d+(?:[.p]\d+)?)\s*([mµu]?)T(?:[_\-]?((?i:pk-pk|pk|peak|amp|rms|pp|p-p|ptp)))?"
+                  r"(?=$|[_.]|-(?!p))")
+B_TYPES = {"pk": "peak", "peak": "peak", "amp": "peak", "rms": "rms", "pp": "peak-to-peak", "p-p": "peak-to-peak",
+           "pk-pk": "peak-to-peak", "ptp": "peak-to-peak"}
+
+
+def parse_amf_coil(name):
+    """Coil and field from a file name:
+      Ap-p set on the power supply: _2App_, _2Ap-p_, _1p5App_, _500mApp_      -> amf_app (A)
+      coil turns:                   _500turns_, _200turn_, _coil500_, _coil-200_ -> coil_turns
+      measured magnetic field:      _40mTpk_ / _40mTpeak_ (peak), _28mTrms_ (rms), _80mTpp_ (peak-to-peak),
+                                    _40mT_ (type not given), also µT/uT and T     -> amf_b (mT), amf_b_type
+    (case-sensitive T, so it is not confused with other parts; the _other-..._ note is ignored)."""
+    core = name_core(name)
+    m = APP_RE.search(core)
+    app = float(f"{_num(m.group(1)) * (1e-3 if m.group(2) else 1):.10g}") if m else None
+    m = COIL_RE.search(core)
+    turns = int(m.group(1) or m.group(2)) if m else None
+    b = btype = None
+    m = B_RE.search(core)
+    if m:
+        b = float(f"{_num(m.group(1)) * {'': 1e3, 'm': 1.0, 'µ': 1e-3, 'u': 1e-3}[m.group(2)]:.10g}")
+        btype = B_TYPES.get((m.group(3) or "").lower(), "")
+    return dict(amf_app=app, coil_turns=turns, amf_b=b, amf_b_type=btype or None)
+
+
+def b_peak(b, btype):
+    """Field amplitude (peak, mT) from a measured value: rms x sqrt(2), peak-to-peak / 2 (sinusoidal field)."""
+    if b is None:
+        return None
+    f = {"peak": 1.0, "rms": math.sqrt(2), "peak-to-peak": 0.5}.get(btype or "")
+    return round(b * f, 6) if f else None
+
+
 def amf_text(d):
     """'500 Hz, 3:00 min' (whatever parts were found in the file name)."""
-    volt = ", ".join(x for x in (fmt_volt(d.get("amf_vpp"), "Vp-p set"), fmt_volt(d.get("amf_v"), "V measured")) if x)
+    volt = ", ".join(x for x in (fmt_volt(d.get("amf_vpp"), "Vp-p set"), fmt_volt(d.get("amf_v"), "V measured"),
+                                 fmt_volt(d.get("amf_app"), "Ap-p set"),
+                                 f"{d['coil_turns']} turns" if d.get("coil_turns") else None,
+                                 f"{d['amf_b']:g} mT {d.get('amf_b_type') or ''}".strip() if d.get("amf_b") is not None
+                                 else None) if x)
     return ", ".join(x for x in (fmt_freq(d.get("amf_hz")), fmt_time(d.get("amf_s")),
                                  f"{volt}" if volt else None) if x)
 
@@ -1963,6 +2009,10 @@ def file_settings(d, threshold_source):
              "values entered in the app instead of being read from the file name"),
             (f"amf_vpp_set:{n}", d["amf_vpp"], "AMF instrument setting, V peak-to-peak, from the file name (_10Vpp_)"),
             (f"amf_v_measured:{n}", d["amf_v"], "measured AMF voltage, V, from the file name (_8.5V_)"),
+            (f"amf_app_set:{n}", d.get("amf_app"), "AMF current set on the power supply, A peak-to-peak (_2App_)"),
+            (f"amf_coil_turns:{n}", d.get("coil_turns"), "turns of the AMF coil (_500turns_)"),
+            (f"amf_b_mT:{n}", d.get("amf_b"), f"measured magnetic field, mT, {d.get('amf_b_type') or 'type not given'} "
+                                              "(_40mTpk_, _28mTrms_)"),
             (f"threshold:{n}", d["thr"], threshold_source),
             (f"filters_px:{n}", f"bg {G['sigma_bg']:.1f}, ridge {','.join(f'{v:.2f}' for v in G['ridge_sigmas'])}, "
              f"st {G['sigma_st']:.1f}, min_obj {G['min_obj_px']}, tile {G['tile']}, edge {G['edge']}, "
@@ -2394,6 +2444,18 @@ def analyse_folder(P, folder, files, out, hs_given):
                 f"measured {fmt_volt(vm) or 'not in file name (expected e.g. _8.5V_)'}")
         elif any(parse_amf_voltage(name)):
             log("  note: AMF voltage in the name of a Before-AMF file; not recorded")
+        coil = parse_amf_coil(name) if cond == "After AMF" else dict.fromkeys(("amf_app", "coil_turns", "amf_b",
+                                                                              "amf_b_type"))
+        coil = {k: man.get(k, v) for k, v in coil.items()}
+        if coil["coil_turns"] is not None:
+            coil["coil_turns"] = int(round(float(coil["coil_turns"])))
+        if cond == "After AMF" and any(v is not None for v in coil.values()):
+            log(f"  AMF coil/field: Ap-p set {fmt_volt(coil['amf_app'], 'A') or '-'}; coil "
+                f"{coil['coil_turns'] or '-'} turns; field {fmt_volt(coil['amf_b'], 'mT') or '-'} "
+                f"{coil['amf_b_type'] or ''}")
+            if coil["amf_b"] is not None and not coil["amf_b_type"]:
+                log("  warning: field given without peak/rms (write e.g. _40mTpk_ or _28mTrms_); "
+                    "amf_b_peak_mT left empty")
         cmg = parse_collagen(name)
         nc_nm = parse_nc(name)
         mix, inc_s = parse_mixing(name)
@@ -2416,7 +2478,7 @@ def analyse_folder(P, folder, files, out, hs_given):
         if name in data:
             sys.exit(f"two files share the name '{name}' (e.g. .nd2 and .tif); keep only one")
         data[name] = dict(name=name, path=f, date=date, sample=smp, condition=cond, manual=set_by_hand, custom=custom,
-                          amf_hz=hz, amf_s=sec, amf_vpp=vpp, amf_v=vm, collagen_mgml=cmg,
+                          amf_hz=hz, amf_s=sec, amf_vpp=vpp, amf_v=vm, **coil, collagen_mgml=cmg,
                           nc_nM=nc_nm, mixing=mix, inc_s=inc_s, other=other,
                           px=px, dz=dz, hotspot=hs, valid=valid, nt=s.shape[0], nz=s.shape[1],
                           kind=kind, times=times, frames=frames,
@@ -2510,7 +2572,11 @@ def analyse_folder(P, folder, files, out, hs_given):
                            nc_incubation_time=fmt_duration(d["inc_s"]), nc_incubation_time_s=d["inc_s"],
                            other=d["other"], **{k: d["custom"].get(k) for k in user_fields()},
                            amf_freq_hz=d["amf_hz"], amf_time=fmt_time(d["amf_s"]), amf_time_s=d["amf_s"],
-                           amf_vpp_set=d["amf_vpp"], amf_v_measured=d["amf_v"],
+                           amf_vpp_set=d["amf_vpp"], amf_v_measured=d["amf_v"], amf_app_set=d["amf_app"],
+                           amf_coil_turns=d["coil_turns"], amf_b_mT=d["amf_b"], amf_b_type=d["amf_b_type"],
+                           amf_b_peak_mT=b_peak(d["amf_b"], d["amf_b_type"]),
+                           amf_ampere_turns_pp=(round(d["amf_app"] * d["coil_turns"], 6)
+                                                if d["amf_app"] is not None and d["coil_turns"] else None),
                            series=SERIES_NAME[d["kind"]], t_index=t,
                            time_s=round(float(d["times"][t]), 3) if d["times"] is not None else np.nan,
                            z_index=z, z_um=round(z_um(t, z), 4), threshold=d["thr"])

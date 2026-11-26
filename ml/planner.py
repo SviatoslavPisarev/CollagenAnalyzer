@@ -22,6 +22,10 @@ VARIABLES = [
     ("amf_time_min", "amf_time_s", "AMF exposure time", "min", 1 / 60, False, 0.5),
     ("amf_vpp_set", "amf_vpp_set", "AMF Vp-p set", "V", 1.0, False, 0.5),
     ("amf_v_measured", "amf_v_measured", "AMF measured voltage", "V", 1.0, False, 0.1),
+    ("amf_app_set", "amf_app_set", "AMF Ap-p set (power supply)", "A", 1.0, False, 0.1),
+    ("amf_coil_turns", "amf_coil_turns", "Coil turns", "turns", 1.0, False, "200, 500"),
+    ("amf_b_peak_mT", "amf_b_peak_mT", "Magnetic field (peak)", "mT", 1.0, False, 0.5),
+    ("amf_ampere_turns", "amf_ampere_turns_pp", "Ap-p × coil turns", "A·turns", 1.0, False, 10),
     ("nc_conc_nM", "nc_conc_nM", "NC concentration", "nM", 1.0, True, 0.05),
     ("premixed", "nc_mixing", "NCs premixed (1) or incubated (0)", "", None, False, 1),
     ("inc_min", "nc_incubation_time_s", "NC incubation time", "min", 1 / 60, False, 5),
@@ -126,8 +130,14 @@ class Space:
         return X
 
     def round(self, X):
+        """Round to the step, or snap to the allowed levels (e.g. coil 200 or 500 turns)."""
         X = np.array(X, float)
         for j, v in enumerate(self.vars):
+            lev = v.get("levels")
+            if lev:
+                lev = np.asarray(sorted(lev), float)
+                X[:, j] = lev[np.abs(X[:, j][:, None] - lev[None, :]).argmin(1)]
+                continue
             if v["step"] and v["step"] > 0:
                 X[:, j] = np.round(X[:, j] / v["step"]) * v["step"]
             X[:, j] = np.clip(X[:, j], v["lo"], v["hi"])
@@ -267,6 +277,12 @@ def file_name_template(row, fixed):
         parts.append(f"{_g(round(v['amf_vpp_set'], 3))}Vpp")
     if np.isfinite(v.get("amf_v_measured", np.nan)):
         parts.append(f"{_g(round(v['amf_v_measured'], 3))}V")
+    if np.isfinite(v.get("amf_app_set", np.nan)):
+        parts.append(f"{_g(round(v['amf_app_set'], 3))}App")
+    if np.isfinite(v.get("amf_coil_turns", np.nan)):
+        parts.append(f"{int(round(v['amf_coil_turns']))}turns")
+    if np.isfinite(v.get("amf_b_peak_mT", np.nan)):
+        parts.append(f"{_g(round(v['amf_b_peak_mT'], 1))}mTpk")
     parts.append("####")
     return "_".join(parts)
 

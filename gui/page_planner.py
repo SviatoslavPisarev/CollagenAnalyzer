@@ -27,11 +27,15 @@ GOALS = [("order_S", "Alignment — order parameter S"), ("file_order_S_pooled",
                                         and "thr_" not in m[0] and "excluded" not in m[0]]
 # ranges offered when there is no data yet (shown units)
 FALLBACK = {"amf_freq_hz": (50, 1800), "amf_time_min": (1, 10), "amf_vpp_set": (1, 20), "amf_v_measured": (1, 10),
-            "nc_conc_nM": (0.1, 5), "premixed": (0, 1), "inc_min": (15, 120), "collagen_mg_ml": (2, 4)}
+            "nc_conc_nM": (0.1, 5), "premixed": (0, 1), "inc_min": (15, 120), "collagen_mg_ml": (2, 4),
+            "amf_app_set": (0.5, 5), "amf_coil_turns": (200, 500), "amf_b_peak_mT": (5, 50),
+            "amf_ampere_turns": (100, 2500)}
 SHORT = {"amf_freq_hz": ("AMF frequency (Hz)", 0), "amf_time_min": ("AMF time (min)", 1),
          "amf_vpp_set": ("Vp-p set (V)", 1), "amf_v_measured": ("Measured V (V)", 2),
          "nc_conc_nM": ("NC conc. (nM)", 2), "premixed": ("Premixed (1) / inc. (0)", 0),
-         "inc_min": ("Incubation (min)", 0), "collagen_mg_ml": ("Collagen (mg/mL)", 1)}
+         "inc_min": ("Incubation (min)", 0), "collagen_mg_ml": ("Collagen (mg/mL)", 1),
+         "amf_app_set": ("Ap-p set (A)", 2), "amf_coil_turns": ("Coil (turns)", 0),
+         "amf_b_peak_mT": ("B field, peak (mT)", 1), "amf_ampere_turns": ("Ap-p × turns", 0)}
 SUMMARY_RE = re.compile(r"^((\d{6}|other)(-\d{6})?_summary|summary)\.xlsx$")
 
 
@@ -146,7 +150,8 @@ class PlannerPage(Page):
         gl.addWidget(self.vt)
         gl.addWidget(hint("Tick the settings that vary between your experiments. ‘From’–‘To’ is the range the "
                           "planner may suggest from — widen it to the instrument limits to explore (e.g. the coil's "
-                          "highest frequency). Suggestions are rounded to ‘Step’. ‘Log’ treats equal ratios as equal "
+                          "highest frequency). Suggestions are rounded to ‘Step’, or limited to a list of values "
+                          "such as ‘200, 500’ (the two coils). ‘Log’ treats equal ratios as equal "
                           "steps (good for frequency and concentration)."))
         cl.addWidget(g)
 
@@ -325,11 +330,25 @@ class PlannerPage(Page):
         except ValueError:
             raise ValueError(f"{SHORT[key][0]}: ‘{txt}’ is not a number (section 3)")
 
+    def _step(self, key):
+        """Step, or a list of allowed values ("200, 500")."""
+        txt = self.vt.item(self.vrow[key], 5).text().strip()
+        if ";" in txt or txt.count(",") >= 1 and not _is_num(txt.replace(",", ".")):
+            try:
+                return 0.0, sorted(float(v) for v in txt.replace(";", ",").split(",") if v.strip())
+            except ValueError:
+                raise ValueError(f"{SHORT[key][0]}: ‘{txt}’ — give a step or allowed values like ‘200, 500’")
+        return self._num(key, 5), None
+
     def space(self):
         vars_ = []
         for key in self.vrow:
             if self._use(key).isChecked():
-                vars_.append(dict(key=key, lo=self._num(key, 3), hi=self._num(key, 4), step=self._num(key, 5),
+                step, levels = self._step(key)
+                lo, hi = self._num(key, 3), self._num(key, 4)
+                if levels:
+                    lo, hi = min(levels + [lo]), max(levels + [hi])
+                vars_.append(dict(key=key, lo=lo, hi=hi, step=step, levels=levels,
                                   log=self._cell(key, 6, check=True).isChecked()))
         if not vars_:
             raise ValueError("Tick at least one setting to optimise (section 3).")
@@ -586,6 +605,14 @@ class PlannerPage(Page):
                 t.setItem(i, c, QTableWidgetItem(v if isinstance(v, str) else _fmt(v)))
         t.resizeColumnsToContents()
         t.setColumnWidth(0, min(t.columnWidth(0), 320))
+
+
+def _is_num(t):
+    try:
+        float(t)
+        return True
+    except ValueError:
+        return False
 
 
 def _plain(axis):

@@ -117,7 +117,7 @@ red fiber mask follows the fibers. For a first, fast look set <i>Analyse every N
 <h2 id="names" class="newpage"><a name="names"></a>3. Naming your files</h2>
 <p>The app reads the experimental conditions from the file names. Parts are separated by underscores and can be in any order
 after the first two; parts that are missing are simply left empty.</p>
-<p>Example: <code>112026_3_Collagen_3mgml_NC_0.5nM_inc45min_other-dried-edges_z_AMF_500Hz_3min_10Vpp_8.5V_1013.nd2</code></p>
+<p>Example: <code>112026_3_Collagen_3mgml_NC_0.5nM_inc45min_other-dried-edges_z_AMF_500Hz_3min_10Vpp_8.5V_2App_500turns_40mTpk_1013.nd2</code></p>
 <table>
 <tr><th>Part of the name</th><th>Meaning</th><th>Accepted forms</th></tr>
 <tr><td><code>mmddyy_##_</code> (start, required)</td><td>Date and sample number. Files with the same start are one sample and are compared before vs after.</td><td><code>112026_3_</code></td></tr>
@@ -126,6 +126,10 @@ after the first two; parts that are missing are simply left empty.</p>
 <tr><td>time</td><td>AMF exposure time</td><td><code>3min</code>, <code>1.5min</code>, <code>3min30s</code>, <code>3m30s</code>, <code>90s</code></td></tr>
 <tr><td><code>#Vpp</code></td><td>AMF Vp-p set on the instrument</td><td><code>10Vpp</code>, <code>10Vp-p</code>, <code>10Vpk-pk</code>, <code>2p5Vpp</code>, <code>500mVpp</code></td></tr>
 <tr><td><code>#V</code></td><td>Measured AMF voltage</td><td><code>8.5V</code>, <code>8p5V</code>, <code>850mV</code></td></tr>
+<tr><td><code>#App</code></td><td>AMF current Ap-p <b>set on the power supply</b> (not the measured current)</td><td><code>2App</code>, <code>2Ap-p</code>, <code>1p5App</code>, <code>500mApp</code></td></tr>
+<tr><td><code>#turns</code></td><td>Number of turns of the AMF coil</td><td><code>500turns</code>, <code>200turn</code>, <code>coil500</code>, <code>coil-200</code></td></tr>
+<tr><td><code>#mTpk</code> / <code>#mTrms</code></td><td>Measured magnetic field and how it was measured: peak, rms or peak-to-peak. The column
+<code>amf_b_peak_mT</code> converts it to the peak value (rms × √2, peak-to-peak ÷ 2, sinusoidal field); without pk/rms it stays empty.</td><td><code>40mTpk</code>, <code>40mTpeak</code>, <code>28mTrms</code>, <code>28mT-rms</code>, <code>80mTpp</code>, <code>400uTrms</code></td></tr>
 <tr><td><code>Collagen_#mgml</code></td><td>Collagen concentration</td><td><code>Collagen_3mgml</code>, <code>Collagen_2.5mgml</code>, <code>Collagen_2p5mgml</code></td></tr>
 <tr><td><code>NC_#nM</code></td><td>Theoretical local nanocage concentration</td><td><code>NC_0.5nM</code>, <code>NC0.5nM</code>, <code>NCs_500pM</code>, <code>NC_2uM</code></td></tr>
 <tr><td><code>premixed</code></td><td>NCs mixed into the collagen before gelation</td><td><code>premixed</code>, <code>premix</code>, <code>pre-mixed</code></td></tr>
