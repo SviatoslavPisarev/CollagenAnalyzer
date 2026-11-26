@@ -81,9 +81,9 @@ The manual (section 3) lists every accepted form.
 
 Download this repository (**Code → Download ZIP**), unzip it, then:
 
-- **Mac:** double-click `Start_Mac.command`. If macOS says *Not Opened*, click Done, open Terminal, type
-  `xattr -dr com.apple.quarantine ` (with a space at the end), drag the unzipped folder into the Terminal window, press Return,
-  and double-click again.
+- **Mac:** open **Terminal**, type `bash ` (with a space), drag `Start_Mac.command` from the unzipped folder into the
+  Terminal window, and press Return. This works even though macOS blocks double-clicking downloaded scripts, and GitHub's
+  ZIP download does not keep the file's "executable" setting.
 - **Windows:** double-click `Start_Windows.bat`.
 
 The first start installs the Python packages (2–5 minutes, internet needed).
