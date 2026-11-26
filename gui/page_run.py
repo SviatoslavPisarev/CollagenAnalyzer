@@ -342,7 +342,7 @@ class RunPage(Page):
     def _on_output(self, kind, path):
         self.outputs_found.append((kind, path))
         label = {"results": "Results folder", "workbook": "Summary spreadsheet", "summary": "Combined summary",
-                 "distributions": None, "figure": None, "file_workbook": None}.get(kind)
+                 "tiles": "Per-tile table", "distributions": None, "figure": None, "file_workbook": None}.get(kind)
         if label:
             it = QListWidgetItem(f"{label}:  {path}")
             it.setData(Qt.UserRole, path)

@@ -3,6 +3,7 @@ import os
 
 from PySide6.QtCore import Qt, QSize, QUrl, QSettings
 from PySide6.QtGui import QIcon, QDesktopServices
+from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
                                QStackedWidget, QTextBrowser, QVBoxLayout, QWidget)
 
@@ -12,6 +13,7 @@ from .page_params import ParamsPage
 from .page_outputs import OutputsPage
 from .page_run import RunPage
 from .page_plots import PlotsPage
+from .page_models import ModelsPage, read_quality
 from .widgets import Page, button, hbox
 
 
@@ -39,8 +41,13 @@ class HelpPage(Page):
         self.footer.addStretch(1)
 
 
-NAV = [("data", "1   Data"), ("params", "2   Parameters"), ("outputs", "3   Outputs"), ("run", "4   Run"),
-       ("plots", "◆   Results & Plots"), ("help", "?   Help")]
+# sidebar: sections (None = no heading) with their pages, in page order
+SECTIONS = [("ANALYSE", [("data", "1   Data"), ("params", "2   Parameters"), ("outputs", "3   Outputs"),
+                         ("run", "4   Run")]),
+            ("EXPLORE", [("plots", "◆   Results & Plots")]),
+            ("MODELS", [("models", "◇   Quality check")]),
+            (None, [("help", "?   Help")])]
+NAV = [p for _, pages in SECTIONS for p in pages]
 
 
 class MainWindow(QMainWindow):
@@ -72,10 +79,28 @@ class MainWindow(QMainWindow):
         sl.addWidget(s)
         self.nav = QListWidget()
         self.nav.setObjectName("nav")
-        for key, text in NAV:
-            it = QListWidgetItem(text)
-            it.setSizeHint(QSize(200, 42))
-            self.nav.addItem(it)
+        self.row_of_page, self.page_of_row = [], {}
+        for title, pages in SECTIONS:
+            if title:
+                h = QListWidgetItem(title)
+                h.setFlags(Qt.NoItemFlags)                 # heading: not selectable
+                f = QFont(h.font()); f.setPointSizeF(max(f.pointSizeF() * 0.75, 8)); f.setBold(True)
+                f.setLetterSpacing(QFont.PercentageSpacing, 112)
+                h.setFont(f)
+                h.setForeground(QColor("#7fa3ad"))
+                h.setSizeHint(QSize(200, 30))
+                self.nav.addItem(h)
+            elif self.nav.count():
+                sp = QListWidgetItem("")
+                sp.setFlags(Qt.NoItemFlags)
+                sp.setSizeHint(QSize(200, 12))
+                self.nav.addItem(sp)
+            for key, text in pages:
+                it = QListWidgetItem(text)
+                it.setSizeHint(QSize(200, 42))
+                self.page_of_row[self.nav.count()] = len(self.row_of_page)
+                self.row_of_page.append(self.nav.count())
+                self.nav.addItem(it)
         sl.addWidget(self.nav, 1)
         foot = QLabel(f"Version {APP_VERSION}\nMatsui Lab · Hunter College")
         foot.setObjectName("navFoot")
@@ -89,9 +114,11 @@ class MainWindow(QMainWindow):
         self.outputs = OutputsPage(self.data)
         self.run = RunPage(self.data, self.params, self.outputs)
         self.plots = PlotsPage()
+        self.models = ModelsPage()
         self.help = HelpPage()
-        for p in (self.data, self.params, self.outputs, self.run, self.plots, self.help):
+        for p in (self.data, self.params, self.outputs, self.run, self.plots, self.models, self.help):
             self.stack.addWidget(p)
+        self.models.model_saved.connect(self.outputs.set_qc_model)
         # back / next buttons on the setup pages
         for i, p in enumerate((self.data, self.params, self.outputs)):
             if i > 0:
@@ -104,7 +131,7 @@ class MainWindow(QMainWindow):
         root.addWidget(self.stack, 1)
         self.setCentralWidget(central)
 
-        self.nav.currentRowChanged.connect(self.stack.setCurrentIndex)
+        self.nav.currentRowChanged.connect(self._nav_changed)
         self.run.go_plots = self.show_results
         self.run.run_finished.connect(self._run_done)
         self.go(0)
@@ -114,12 +141,26 @@ class MainWindow(QMainWindow):
             self.restoreGeometry(geo)
 
     def go(self, i):
-        self.nav.setCurrentRow(i)
+        self.nav.setCurrentRow(self.row_of_page[i])
+
+    def _nav_changed(self, row):
+        if row in self.page_of_row:
+            self.stack.setCurrentIndex(self.page_of_row[row])
 
     def _run_done(self, outputs):
         books = [p for k, p in outputs if k == "workbook"]
         if books:
             self.plots.load_paths(books)
+            qc = {}
+            for b in books:
+                try:
+                    q = read_quality(b)
+                except Exception:
+                    continue
+                for _, r in q.iterrows():
+                    qc[str(r["file"])] = (str(r.get("qc_status") or ""), str(r.get("qc_flags") or ""))
+            if qc:
+                self.data.set_qc(qc)
 
     def show_results(self, books):
         if books:

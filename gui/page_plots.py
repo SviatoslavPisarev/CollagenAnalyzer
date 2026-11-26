@@ -411,6 +411,10 @@ class PlotsPage(Page):
                                       str(r.get("series", ""))])
                 it.setData(0, Qt.UserRole, u)
                 it.setToolTip(0, u)
+                if str(r.get("qc_status")) == "check":           # flagged by the quality check
+                    it.setText(0, "⚠ " + u)
+                    it.setForeground(0, QColor(style.WARN))
+                    it.setToolTip(0, f"{u}\nQuality check: {r.get('qc_flags')}")
                 it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
                 it.setCheckState(0, Qt.Checked if (old is None or u in old) else Qt.Unchecked)
                 it.setForeground(1, QColor(style.AFTER if r["condition"] == "After AMF" else style.BEFORE))

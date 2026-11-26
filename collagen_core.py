@@ -28,7 +28,10 @@ the folder holds several dates, "other" if no name has a date):
   <nd2 file name>.png         per file: slice, projection, masks, three graphs
   mmddyy_summary.xlsx         spreadsheet: "per slice" (every analysed image of every file:
                               all metrics, all settings, file and per-image metadata),
-                              "per file" (mean and SD per file), "settings"
+                              "per file" (mean and SD per file), "settings", "quality" (one row
+                              per file: QC status and flags, see ml/qc.py)
+  mmddyy_tiles.csv            per-tile table: the metrics of every --tile-um tile of every analysed
+                              image, with its position and a dark/blurred flag (not with --no-tiles)
   <file name>/                one folder per file (default; not with --averages-only):
     slices/NAME_z###.png      a figure of every analysed image
     NAME.png, NAME_slice_comparison.png, NAME_slice_distributions.png, NAME_summary.xlsx
@@ -39,7 +42,7 @@ Several folders (python collagen_reflectance_analysis.py FOLDER1 FOLDER2 ...):
   every folder gets its own <mmddyy>_results/ as above, plus one combined workbook
   summary.xlsx in the folders' common parent folder (or --out): sheets "per slice" and
   "per file" (all rows of every mmddyy_summary, with folder and results_folder columns),
-  "settings" (the settings of each folder/date) and "folders" (overview).
+  "settings" (the settings of each folder/date), "folders" (overview) and "quality".
 
 Single-file mode (--file NAME): only that file, written to mmddyy_results/NAME/
 (with several folders: in every folder that contains it):
@@ -61,7 +64,9 @@ Pipeline:
      pore size (local thickness, edge-corrected; plus distance-map maxima),
      fiber size (local thickness of the fiber mask = apparent fiber thickness),
      fiber length (skeleton split into segments between ends / branch points),
-     structure-tensor alignment, tile heterogeneity, mean reflectance (QC)
+     structure-tensor alignment, tile heterogeneity, mean reflectance, quality-check metrics
+     (sharpness, edge/centre brightness, saturation, dark or blurred tiles)
+  6. per file: quality check (rules, plus a trained model with --qc-model) -> qc_status, qc_flags
   All filter sizes are given in µm and converted per file with its pixel size.
   Slices are analysed in parallel (--workers).
 
@@ -93,13 +98,19 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker
 from matplotlib.patches import Patch
 
+try:
+    from ml import qc as QC
+except ImportError:                      # collagen_core.py copied on its own, without the ml/ folder
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from ml import qc as QC
+
 ANGLE_BINS = 36                      # 5-degree bins over -90..90 deg
 BEFORE_COLOR, AFTER_COLOR = "#3b6fb6", "#d9622b"
 EXTRA_COLORS = ["#2a9d5c", "#8e44ad", "#c0392b", "#7f8c8d"]
 LABEL_COLS = ["date", "sample", "file", "collagen_mg_ml", "nc_conc_nM", "nc_mixing", "nc_incubation_time",
               "nc_incubation_time_s", "other", "condition", "amf_freq_hz", "amf_time", "amf_time_s",
               "amf_vpp_set", "amf_v_measured",
-              "series", "t_index", "time_s", "z_index", "z_um", "threshold"]
+              "series", "t_index", "time_s", "z_index", "z_um", "threshold", "qc_status", "qc_flags"]
 SERIES_NAME = {"z": "z-stack", "t": "time-lapse", "single": "single image"}
 LT_BIN_UM, LT_MAX_UM = 0.25, 60.0    # pore-size histogram: 0.25 µm bins up to 60 µm (+ overflow)
 LT_EDGES = np.r_[np.arange(0, LT_MAX_UM + 1e-9, LT_BIN_UM), np.inf]
@@ -1049,7 +1060,8 @@ def geometry(px, P):
                 edge=max(int(round(P.edge_um / px)), 1),
                 pore_min_dist=max(int(round(P.pore_min_dist_um / px)), 1),
                 hotspot_sigma=P.hotspot_sigma_um / px,
-                min_fiber_len=P.min_fiber_length_um / px)
+                min_fiber_len=P.min_fiber_length_um / px,
+                tiles=not getattr(P, "no_tiles", False))
 
 
 def analyse_slice(img, valid, thr, G, full=False):
@@ -1137,8 +1149,15 @@ def analyse_slice(img, valid, thr, G, full=False):
     fr = np.array(fr)
     out["tile_cv"] = float(fr.std() / fr.mean()) if len(fr) and fr.mean() > 0 else np.nan
     out["mean_reflectance"] = float(img[valid].mean())
+    # quality check: focus, edge/centre brightness, saturation; per-tile table with dark/blurred tiles
+    qcm, lap = QC.image_metrics(img, flat, valid)
+    out.update(qcm)
+    tiles = []
+    if G.get("tiles", True):
+        tiles, out["qc_bad_tiles_pct"] = QC.tile_table(img, valid, fib, mask, seg["sk"], lt, lt_f, o["theta_map"],
+                                                       o["coh_map"], lap, G["tile"], px, skeleton_length)
     aux = dict(zsum=o["zsum"], n=o["n"], angle_hist=angle_hist(o["theta"]), lt_hist=lt_hist,
-               fib_hist=fib_hist, seg_hist=seg_hist)
+               fib_hist=fib_hist, seg_hist=seg_hist, tiles=tiles)
     if full:
         aux.update(mask=mask, flat=flat, o=o, lt=lt, lt_f=lt_f, seg_lab=seg["lab"], seg_bad_lut=seg["bad_lut"])
     return out, aux
@@ -1153,7 +1172,7 @@ def _slice_job(args):
     if spec is not None:
         FIG.update(spec.get("fig", {}))          # workers do not inherit the settings on Mac/Windows
         slice_figure(img, valid, thr, G, out, aux, spec)
-        aux = {k: aux[k] for k in ("zsum", "n", "angle_hist", "lt_hist", "fib_hist", "seg_hist")}
+        aux = {k: aux[k] for k in ("zsum", "n", "angle_hist", "lt_hist", "fib_hist", "seg_hist", "tiles")}
     return z, out, aux
 
 
@@ -1925,7 +1944,10 @@ def global_settings(P, threshold_source, run_time, single_file, detail):
                                                          for f in METADATA.get("fields", []))),
             ("figures", ",".join(k for k in FIGURE_KEYS if k in FIG["keys"]) or "none", "figures made"),
             ("figure_format", f"{FIG['fmt']}, dpi {FIG['dpi'] or 'default'}", "figure file format and resolution"),
-            ("single_file", single_file or "", "--file: only this file was analysed")]
+            ("single_file", single_file or "", "--file: only this file was analysed"),
+            ("tiles", "off" if P.no_tiles else f"{P.tile_um} µm tiles",
+             "per-tile table mmddyy_tiles.csv (tiles at least 80 % inside the analysed area)")] \
+        + QC.settings_rows(P.qc_model)
 
 
 def file_settings(d, threshold_source):
@@ -1971,15 +1993,17 @@ def _clean(df):
     return df
 
 
-def write_spreadsheet(base, per_df, settings_rows):
-    """Write <base>.xlsx with three sheets:
+def write_spreadsheet(base, per_df, settings_rows, quality=None):
+    """Write <base>.xlsx with four sheets:
       per slice  one row per analysed image of every file: all metrics, then every setting
                  (set_... for all files, file_... for that file), then the file metadata
                  (meta_...) and the per-image metadata (slice_...)
       per file   mean and SD of every metric per file
       settings   parameter / value / description
+      quality    one row per file: QC status, flags, model probability and the QC features (ml/qc.py)
     Falls back to CSV files if openpyxl is not installed.
-    Returns (path written, per-slice frame, per-file frame, settings frame)."""
+    Returns (path written, per-slice frame, per-file frame, settings frame, quality frame)."""
+    q = quality if quality is not None else pd.DataFrame(columns=["file", "qc_status", "qc_flags"])
     st = pd.DataFrame(settings_rows, columns=["parameter", "value", "description"])
     glob_set = {p: v for p, v, _ in settings_rows if ":" not in p}
     file_set = {}
@@ -2016,24 +2040,26 @@ def write_spreadsheet(base, per_df, settings_rows):
         import openpyxl  # noqa: F401
         path = base + ".xlsx"
         with pd.ExcelWriter(path, engine="openpyxl") as xw:
-            for sheet, frame, freeze in (("per slice", df, (1, 3)), ("per file", pf, (1, 3)), ("settings", st, (1, 1))):
+            for sheet, frame, freeze in (("per slice", df, (1, 3)), ("per file", pf, (1, 3)), ("settings", st, (1, 1)),
+                                         ("quality", q, (1, 1))):
                 _clean(frame).to_excel(xw, sheet_name=sheet, index=False, freeze_panes=freeze)
                 ws = xw.sheets[sheet]
                 for k, col in enumerate(frame.columns, start=1):
                     w = min(max(len(str(col)), 10) + 2, 45)
                     ws.column_dimensions[openpyxl.utils.get_column_letter(k)].width = w
-        return path, df, pf, st
+        return path, df, pf, st, q
     except ImportError:
         log("  WARNING: openpyxl not installed (pip install openpyxl) - writing CSV files instead")
         df.to_csv(base + "_per_slice.csv", index=False)
         pf.to_csv(base + "_per_file.csv", index=False)
         st.to_csv(base + "_settings.csv", index=False)
-        return base + "_per_slice.csv", df, pf, st
+        q.to_csv(base + "_quality.csv", index=False)
+        return base + "_per_slice.csv", df, pf, st, q
 
 
 def write_combined(base, parts):
     """Combine the date summaries of several folders into one workbook <base>.xlsx.
-    parts: list of (folder, results folder, date, per-slice, per-file, settings) frames.
+    parts: list of (folder, results folder, date, per-slice, per-file, settings, quality) frames.
     Sheets: 'per slice' and 'per file' (all rows of all folders, with folder and
     results_folder columns first), 'settings' (each folder's settings, one block per
     folder/date) and 'folders' (one line per folder/date: files, images, where the results are).
@@ -2048,9 +2074,9 @@ def write_combined(base, parts):
             f.insert(0, "folder", folder)
             out.append(f)
         return pd.concat(out, ignore_index=True, sort=False)
-    per_slice, per_file = tagged(0), tagged(1)
+    per_slice, per_file, quality = tagged(0), tagged(1), tagged(3)
     st = []
-    for folder, res, date, _, _, s in parts:
+    for folder, res, date, _, _, s, _ in parts:
         s = s.copy()
         s.insert(0, "date", date)
         s.insert(0, "folder", folder)
@@ -2059,9 +2085,9 @@ def write_combined(base, parts):
     ov = pd.DataFrame([dict(folder=folder, date=date, results_folder=res,
                             n_files=int(pf_["file"].nunique()), n_images=len(ps),
                             samples=", ".join(dict.fromkeys(pf_["sample"].astype(str))))
-                       for folder, res, date, ps, pf_, _ in parts])
+                       for folder, res, date, ps, pf_, _, _ in parts])
     sheets = (("per slice", per_slice, (1, 4)), ("per file", per_file, (1, 4)),
-              ("settings", st, (1, 2)), ("folders", ov, (1, 1)))
+              ("settings", st, (1, 2)), ("folders", ov, (1, 1)), ("quality", quality, (1, 3)))
     try:
         import openpyxl  # noqa: F401
         path = base + ".xlsx"
@@ -2153,6 +2179,11 @@ def build_parser():
     ap.add_argument("--metadata", default=None,
                     help="JSON file with values entered by hand (they replace the values read from the file names) "
                          "and added parameters; written by the app")
+    ap.add_argument("--no-tiles", action="store_true",
+                    help="do not write the per-tile table (mmddyy_tiles.csv: metrics of every --tile-um tile)")
+    ap.add_argument("--qc-model", default=None,
+                    help="trained quality-check model (.joblib, made on the app's Models page): adds the "
+                         "probability that a file has a problem to the 'quality' sheet")
     ap.add_argument("--gui", action="store_true", help=argparse.SUPPRESS)
     return ap
 
@@ -2183,6 +2214,8 @@ def main(argv=None):
         bad = FIG["keys"] - set(FIGURE_KEYS)
         if bad:
             ap.error(f"--figures: unknown {', '.join(sorted(bad))}; choose from {', '.join(FIGURE_KEYS)}")
+    if P.qc_model and not os.path.isfile(P.qc_model):
+        ap.error(f"--qc-model: file not found: {P.qc_model}")
     if P.dpi is not None and not 30 <= P.dpi <= 1200:
         ap.error("--dpi must be between 30 and 1200")
     try:
@@ -2424,7 +2457,7 @@ def analyse_folder(P, folder, files, out, hs_given):
     check_settings(list(data), data, "between files in this folder")
 
     # ---- pass 2: analyse every file
-    rows = []
+    rows, tile_rows = [], []
     # work units: each analysed slice + median slice + per-file figure
     PROGRESS.start("2/3 analysing slices",
                    sum(len(d["frames"]) + 2 for d in data.values()))
@@ -2482,6 +2515,8 @@ def analyse_folder(P, folder, files, out, hs_given):
                            time_s=round(float(d["times"][t]), 3) if d["times"] is not None else np.nan,
                            z_index=z, z_um=round(z_um(t, z), 4), threshold=d["thr"])
                 frows.append(res)
+                for tr in aux.get("tiles", ()):
+                    tile_rows.append(dict(file=name, t_index=t, z_index=z, **tr))
                 ah += aux["angle_hist"]; lh += aux["lt_hist"]; zsum += aux["zsum"]; nfib += aux["n"]
                 fh += aux["fib_hist"]; sh += aux["seg_hist"]
                 frame_hists.append({k: aux[k] for k in ("lt_hist", "fib_hist", "seg_hist", "angle_hist")})
@@ -2535,11 +2570,29 @@ def analyse_folder(P, folder, files, out, hs_given):
     t_phase["analysing slices"] = time.time() - t0
 
     per = pd.DataFrame(rows)
+    # ---- quality check per file (rules + optional trained model); file-level result on every row
+    quality = QC.assess(per, P.qc_model, log=lambda *a: log(*a))
+    qmap = quality.set_index("file")
+    per["qc_status"] = per["file"].map(qmap["qc_status"])
+    per["qc_flags"] = per["file"].map(qmap["qc_flags"])
+    n_check = int((quality["qc_status"] == "check").sum())
+    log(f"quality check: {len(quality) - n_check} file(s) ok, {n_check} to check")
+    for _, q in quality[quality["qc_status"] == "check"].iterrows():
+        log(f"  WARNING (QC) {q['file']}: {q['qc_flags']}")
+    for _, q in quality[(quality["qc_status"] == "ok") & (quality["label_from_note"] == "problem")].iterrows():
+        log(f"  note (QC) {q['file']}: the file name mentions a problem ({q['other']}) but no QC rule flagged it")
     metric_cols = [c for c in per.columns if c not in LABEL_COLS and not c.startswith(("meta_", "slice_"))]
     meta_cols = [c for c in per.columns if c.startswith("meta_")]
     slice_cols = [c for c in per.columns if c.startswith("slice_")]
     per = per[LABEL_COLS + metric_cols + meta_cols + slice_cols]
     run_time = datetime.now().strftime("%Y-%m-%d %H:%M")
+    # per-tile table: tile metrics + the labels of their image
+    tiles = pd.DataFrame(tile_rows)
+    if len(tiles):
+        lab = [c for c in LABEL_COLS if c not in ("file", "t_index", "z_index", "threshold", "qc_flags")]
+        tiles = per[["file", "t_index", "z_index"] + lab].merge(tiles, on=["file", "t_index", "z_index"])
+        tiles = tiles[["file", "t_index", "z_index"] + lab + [c for c in QC.TILE_COLS if c in tiles]]
+    del tile_rows
 
     # ---- per date: summary CSV, settings CSV, sample figures, side-by-side figures
     dates = sorted(set(d["date"] for d in data.values()))
@@ -2572,12 +2625,19 @@ def analyse_folder(P, folder, files, out, hs_given):
             date_figures(date, samples, data, per, out, P.share_y)
         g_rows = global_settings(P, threshold_source, run_time, single_file, detail)
         f_rows = [r for n in dfiles for r in file_settings(data[n], threshold_source)]
-        sheets.append((os.path.join(out, f"{prefix}_summary"), per[per.date == date], g_rows + f_rows, date))
+        qd = quality[quality["file"].isin(dfiles)]
+        sheets.append((os.path.join(out, f"{prefix}_summary"), per[per.date == date], g_rows + f_rows, date, qd))
+        if len(tiles):
+            tpath = os.path.join(out, f"{prefix}_tiles.csv")
+            tiles[tiles["file"].isin(dfiles)].to_csv(tpath, index=False)
+            log(f"  saved {os.path.relpath(tpath, out)} ({int(tiles['file'].isin(dfiles).sum())} tiles)")
+            emit("OUT", "tiles", tpath)
         save_distributions(os.path.join(out, f"{prefix}_distributions.npz"), dfiles, data)
         if detail and not single_file:          # each file's own workbook in its folder
             for n in dfiles:
                 sheets.append((os.path.join(data[n]["file_out"], f"{n}_summary"), per[per.file == n],
-                               g_rows + file_settings(data[n], threshold_source), None))
+                               g_rows + file_settings(data[n], threshold_source), None,
+                               quality[quality["file"] == n]))
         PROGRESS.step()
     PROGRESS.finish()
     t_phase["figures and spreadsheets"] = time.time() - t0
@@ -2587,8 +2647,8 @@ def analyse_folder(P, folder, files, out, hs_given):
               + ", ".join(f"{k} {Progress._t(v)}" for k, v in t_phase.items())
               + (f"; {total / n_slices:.1f} s per image" if n_slices else ""))
     summaries = []
-    for path, df_, rows_, date in sheets:
-        written, *frames = write_spreadsheet(path, df_, rows_ + [("run_duration_s", round(total, 1), timing)])
+    for path, df_, rows_, date, qd in sheets:
+        written, *frames = write_spreadsheet(path, df_, rows_ + [("run_duration_s", round(total, 1), timing)], qd)
         log(f"  saved {os.path.relpath(written, out)}")
         emit("OUT", "workbook" if date is not None else "file_workbook", written)
         if date is not None:

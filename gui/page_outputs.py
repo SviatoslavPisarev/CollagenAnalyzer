@@ -111,6 +111,29 @@ class OutputsPage(Page):
         self.lay.addWidget(g)
         self.lay.addWidget(hint("Default resolution is 90–120 dpi (fast, small files). 300 dpi makes print-quality "
                                 "PNG/TIFF; large runs with ‘every analysed image’ figures then take longer."))
+
+        # --- quality check and per-tile table
+        g = QGroupBox("Quality check and per-tile table")
+        gl = QVBoxLayout(g)
+        gl.addWidget(hint("Every run checks each file for blur, uneven (dried) edges, saturation, dark tiles and "
+                          "threshold sensitivity. Results: the ‘quality’ sheet of the summary spreadsheet, the QC "
+                          "column on the Data page and warnings in the log."))
+        self.tiles = QCheckBox("Per-tile table (mmddyy_tiles.csv): the metrics of every tile of every analysed "
+                               "image, for finding local patterns")
+        self.tiles.setChecked(True)
+        self.tiles.setToolTip("Tile size = ‘Tile size’ on the Parameters page (default 13 µm).")
+        self.qc_on = QCheckBox("Also apply my trained quality-check model:")
+        self.qc_path = QLineEdit()
+        self.qc_path.setReadOnly(True)
+        self.qc_path.setPlaceholderText("Train and save one on the Quality check page…")
+        self.qc_browse = button("Choose…", slot=self.browse_model)
+        for w in (self.tiles, self.qc_on):
+            w.toggled.connect(self._sync)
+        gl.addWidget(self.tiles)
+        row = hbox(self.qc_on, self.qc_path, self.qc_browse, stretch_end=False)
+        row.layout().setStretch(1, 1)
+        gl.addWidget(row)
+        self.lay.addWidget(g)
         self.lay.addStretch(1)
 
         self.loc_next.toggled.connect(self._sync)
@@ -126,6 +149,18 @@ class OutputsPage(Page):
             self.loc_path.setText(p)
             self.loc_custom.setChecked(True)
 
+    def browse_model(self):
+        p, _ = QFileDialog.getOpenFileName(self, "Quality-check model", os.path.dirname(self.qc_path.text()),
+                                           "QC model (*.joblib)")
+        if p:
+            self.set_qc_model(p)
+
+    def set_qc_model(self, path):
+        """Use this model for new runs (called by the Quality check page after saving a model)."""
+        self.qc_path.setText(path)
+        self.qc_on.setChecked(True)
+        self._sync()
+
     def set_all(self, on):
         for cb in self.fig_cb.values():
             cb.setChecked(on)
@@ -139,6 +174,7 @@ class OutputsPage(Page):
         self.loc_path.setEnabled(custom)
         self.loc_browse.setEnabled(custom)
         self.dpi.setEnabled(not self.dpi_default.isChecked())
+        self.qc_path.setEnabled(self.qc_on.isChecked())
         detail = self.det_full.isChecked() or self.data_page.mode == "file"
         for k in ("slices", "slice_comparison"):
             self.fig_cb[k].setEnabled(detail)
@@ -166,6 +202,9 @@ class OutputsPage(Page):
                 os.makedirs(p, exist_ok=True)
             except OSError as e:
                 return f"Cannot create the results folder: {e}"
+        if self.qc_on.isChecked() and not os.path.isfile(self.qc_path.text()):
+            return ("The quality-check model file was not found (Outputs page): choose it again, or untick "
+                    "‘apply my trained quality-check model’.")
         return None
 
     def engine_args(self):
@@ -181,6 +220,10 @@ class OutputsPage(Page):
             a += ["--dpi", str(self.dpi.value())]
         if self.share_y.isChecked():
             a.append("--share-y")
+        if not self.tiles.isChecked():
+            a.append("--no-tiles")
+        if self.qc_on.isChecked() and self.qc_path.text():
+            a += ["--qc-model", self.qc_path.text()]
         return a
 
     def results_root(self):
@@ -190,7 +233,8 @@ class OutputsPage(Page):
     def state(self):
         return dict(custom=self.loc_custom.isChecked(), path=self.loc_path.text(), detail=self.det_full.isChecked(),
                     figs={k: cb.isChecked() for k, cb in self.fig_cb.items()}, share_y=self.share_y.isChecked(),
-                    fmt=self.fmt.currentIndex(), dpi_default=self.dpi_default.isChecked(), dpi=self.dpi.value())
+                    fmt=self.fmt.currentIndex(), dpi_default=self.dpi_default.isChecked(), dpi=self.dpi.value(),
+                    tiles=self.tiles.isChecked(), qc_on=self.qc_on.isChecked(), qc_path=self.qc_path.text())
 
     def save_settings(self):
         if getattr(self, "_loading", False):
@@ -213,4 +257,7 @@ class OutputsPage(Page):
         self.fmt.setCurrentIndex(st.get("fmt", 0))
         self.dpi_default.setChecked(st.get("dpi_default", True))
         self.dpi.setValue(st.get("dpi", 300))
+        self.tiles.setChecked(st.get("tiles", True))
+        self.qc_path.setText(st.get("qc_path", ""))
+        self.qc_on.setChecked(st.get("qc_on", False) and bool(st.get("qc_path")))
         self._loading = False

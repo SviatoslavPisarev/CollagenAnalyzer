@@ -50,7 +50,8 @@ AMF treatment, across samples and across experiments, and makes publication-read
 <a href="#metrics">10. What the numbers mean</a><br>
 <a href="#good">11. Good practice for comparisons</a><br>
 <a href="#trouble">12. Troubleshooting</a><br>
-<a href="#cli">13. Command line (optional)</a></p>
+<a href="#cli">13. Command line (optional)</a><br>
+<a href="#qc">14. Quality check and the per-tile table</a></p>
 </div>
 
 <h2 id="install"><a name="install"></a>1. Installing and starting the app</h2>
@@ -310,6 +311,10 @@ for Prism, Origin or Excel. The toolbar above the graph zooms, pans and resets t
 file name, all settings (<code>set_…</code>, <code>file_…</code>), file metadata (<code>meta_…</code>: laser, detector, objective, pinhole…) and per-image
 metadata (<code>slice_…</code>). Sheet <b>per file</b>: mean and SD per file. Sheet <b>settings</b>: every parameter with a description.</td></tr>
 <tr><td><code>summary.xlsx</code></td><td>(several folders) all rows of all folders with <code>folder</code> / <code>results_folder</code> columns, plus a <b>folders</b> overview sheet.</td></tr>
+<tr><td><code>mmddyy_summary.xlsx</code>, sheet <b>quality</b></td><td>One row per file: QC status (ok / check), the reasons, the
+trained model's probability (if used) and the numbers behind them (Section 14).</td></tr>
+<tr><td><code>mmddyy_tiles.csv</code></td><td>Per-tile table: the metrics of every tile (default 13 µm) of every analysed image, with its
+position and a dark / blurred flag (Section 14).</td></tr>
 <tr><td><code>mmddyy_distributions.npz</code></td><td>Histograms behind the distribution graphs; used by Results &amp; Plots.</td></tr>
 <tr><td><code>sample_mmddyy_##.png</code></td><td>Before vs after comparison of one sample.</td></tr>
 <tr><td><code>mmddyy_fiber_density.png</code> etc.</td><td>Per-date figures, one panel per sample.</td></tr>
@@ -370,7 +375,38 @@ variation with depth, not uncertainty of the sample mean. Use several gels/field
 <p>Run <code>python3 collagen_core.py --help</code> for all options. New options used by the app: <code>--files-from</code> (list of files),
 <code>--results-root</code> (results location), <code>--figures</code> (which figures), <code>--fig-format</code>, <code>--dpi</code> and
 <code>--metadata</code> (a JSON file with values typed by hand and added parameters).
-<b>Copy command line</b> on the Run page writes the command matching your current settings.</p>
+<b>Copy command line</b> on the Run page writes the command matching your current settings.
+<code>--no-tiles</code> skips the per-tile table; <code>--qc-model FILE</code> applies a trained quality-check model.</p>
+
+<h2 id="qc" class="newpage"><a name="qc"></a>14. Quality check and the per-tile table</h2>
+<p>Every run checks each file and writes the result to the <b>quality</b> sheet, the <b>QC</b> column on the Data page
+(<i>ok</i> or <i>⚠ check</i>; hover for the reasons), warnings in the Run log and a ⚠ in the Results &amp; Plots file list.
+<b>Untick QC ‘check’</b> on the Data page leaves those files out of the next run.</p>
+<table>
+<tr><th>Built-in check</th><th>Flagged when</th></tr>
+<tr><td>Blur / focus</td><td>median sharpness (variance of the Laplacian) below 0.5 × the median of the files in the folder</td></tr>
+<tr><td>Uneven edges (drying)</td><td>brightness of the outer band vs the centre outside 0.67–1.5</td></tr>
+<tr><td>Saturation</td><td>more than 0.5 % of the pixels of an image at the maximum value</td></tr>
+<tr><td>Threshold sensitivity</td><td>the fiber area changes by more than 60 % when the threshold moves ±10 %</td></tr>
+<tr><td>Dark or blurred tiles</td><td>more than 20 % of the tiles below 0.4 × the image's median tile brightness or sharpness</td></tr>
+<tr><td>Other</td><td>fiber area below 1 %; less than half of the image analysed; reflectance below 0.4 × the folder median;
+z-stacks: fibers in fewer than 30 % of the images</td></tr>
+</table>
+<p>The limits are first guesses: check them against files you know. Blur and brightness are compared with the other files of
+the same folder, so a folder of only one or two files cannot be judged on those.</p>
+<h3>Training your own model (Quality check page)</h3>
+<p>Load the summary spreadsheets of earlier runs. Each file gets a label from the note in its name (<code>_other-dried-edges_</code>,
+<code>_other-bubble_</code>, <code>_other-blurry_</code>… mean <i>problem</i>; anything else <i>ok</i>); change any label, or set
+<i>skip</i>. <b>Train model</b> fits a random forest to the quality numbers and reports its cross-validated accuracy and the
+numbers it relies on most; red entries in the last column are files where it disagrees with your label (worth a second look).
+<b>Save model…</b> stores it and switches it on for new runs (Outputs page). Aim for at least 10 problem and 10 ok files.
+Only open model files you made yourself.</p>
+<h3>Per-tile table</h3>
+<p><code>mmddyy_tiles.csv</code> has one row per tile: file, image (t, z), conditions, tile position (<code>x_um</code>, <code>y_um</code>),
+fiber area fraction, length density, pore and fiber size, order parameter S, mean angle, coherency, reflectance, sharpness and
+a <code>tile_flag</code> (dark / blurred). It is the input for finding local remodeling patterns (clustering) and can be opened in
+Excel, Prism or Python. Tiles less than 80 % inside the analysed area (image edge, hotspot) are left out. Switch it off on
+the Outputs page.</p>
 
 </body>
 </html>

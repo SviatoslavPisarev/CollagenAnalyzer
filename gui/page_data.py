@@ -15,7 +15,7 @@ from .fields_dialog import FieldsDialog
 from .widgets import Page, Card, ModeCard, button, hint, banner, hbox
 from . import style
 
-LEFT = ["", "File", "Folder", "Date", "Sample"]
+LEFT = ["", "File", "Folder", "Date", "Sample", "QC"]
 RIGHT = ["Type", "Pixel (µm)"]
 EDITED_BG = QColor("#fff3c4")
 
@@ -94,6 +94,10 @@ class DataPage(Page):
             self.fields_cfg = {}
         self.fields_cfg.setdefault("defaults", {})
         self.fields_cfg.setdefault("custom", [])
+        try:
+            self.qc = json.loads(st.value("data/qc", "") or "{}")              # file name -> [status, flags]
+        except ValueError:
+            self.qc = {}
         self.col_field = {}
 
         # ---- mode cards
@@ -155,6 +159,9 @@ class DataPage(Page):
         top.addWidget(self.filter_edit)
         top.addWidget(button("Tick all", slot=lambda: self.tick_all(True)))
         top.addWidget(button("Untick all", slot=lambda: self.tick_all(False)))
+        top.addWidget(button("Untick QC ‘check’", slot=self.untick_flagged,
+                             tip="Untick the files the quality check of the last run marked ‘check’ "
+                                 "(see the QC column)"))
         top.addWidget(button("Defaults && added parameters…", "primary", slot=self.edit_fields,
                              tip="Default values used when a file name lacks them, and your own parameters "
                                  "(e.g. gel thickness, NC type) — remembered for future runs"))
@@ -294,7 +301,7 @@ class DataPage(Page):
         fields = self.fields()
         cols = LEFT + [f["title"] for f in fields] + RIGHT
         self.col_field = {len(LEFT) + i: f for i, f in enumerate(fields)}
-        self.col_type, self.col_px = len(cols) - 2, len(cols) - 1
+        self.col_type, self.col_px, self.col_qc = len(cols) - 2, len(cols) - 1, LEFT.index("QC")
         self.table.blockSignals(True)
         self.table.setSortingEnabled(False)
         self.table.clear()
@@ -325,6 +332,7 @@ class DataPage(Page):
                     it.setForeground(QBrush(QColor(style.ERROR)))
                 self.table.setItem(i, c, it)
             self._fill_fields(i, p)
+            self._fill_qc(i, p)
             self.table.item(i, self.col_type).setText("…")
             h = self.headers.get(p)
             if h is not None:
@@ -557,6 +565,46 @@ class DataPage(Page):
             self.table.item(i, self.col_type).setToolTip(h["error"])
             self.table.item(i, self.col_type).setForeground(QBrush(QColor(style.ERROR)))
         self.table.blockSignals(was)
+
+    # ------------------------------------------------------------------ quality check of the last run
+    def set_qc(self, results):
+        """results: file name (no extension) -> (status, flags), from the 'quality' sheet of a run."""
+        self.qc.update({k: list(v) for k, v in results.items()})
+        if len(self.qc) > 5000:                       # keep the stored list small
+            self.qc = dict(list(self.qc.items())[-5000:])
+        QSettings().setValue("data/qc", json.dumps(self.qc))
+        was = self.table.blockSignals(True)
+        for i in range(self.table.rowCount()):
+            it = self.table.item(i, 0)
+            if it is not None:
+                self._fill_qc(i, it.data(Qt.UserRole))
+        self.table.blockSignals(was)
+
+    def _fill_qc(self, i, path):
+        it = self.table.item(i, self.col_qc)
+        if it is None:
+            return
+        status, flags = self.qc.get(os.path.splitext(os.path.basename(path))[0], ("", ""))
+        it.setText({"ok": "ok", "check": "⚠ check"}.get(status, ""))
+        it.setToolTip(flags or ("No problem found by the quality check of the last run." if status == "ok" else
+                                "Not analysed yet (the QC column fills after a run)."))
+        it.setForeground(QBrush(QColor(style.WARN if status == "check" else style.OK)))
+
+    def untick_flagged(self):
+        was = self.table.blockSignals(True)
+        n = 0
+        for i in range(self.table.rowCount()):
+            it = self.table.item(i, 0)
+            p = it.data(Qt.UserRole)
+            if self.qc.get(os.path.splitext(os.path.basename(p))[0], ("",))[0] == "check" and self.rows[p].get("tick"):
+                it.setCheckState(Qt.Unchecked)
+                self.rows[p]["tick"] = False
+                n += 1
+        self.table.blockSignals(was)
+        self._update_count()
+        if not n:
+            QMessageBox.information(self, "Quality check", "No ticked file is marked ‘check’. The QC column fills "
+                                    "after a run.")
 
     def _item_changed(self, it):
         p = it.data(Qt.UserRole)

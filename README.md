@@ -54,6 +54,14 @@ Work through the pages on the left of the window:
 
    You can save the figure and export the plotted data as CSV.
 
+### Quality check (new)
+
+Every run now checks each file for blur, uneven (dried) edges, saturation, dark tiles and threshold sensitivity. The
+results go to a **quality** sheet in the summary spreadsheet, a **QC** column on the Data page and warnings in the log.
+On the **Quality check** page you can train a model on your own labelled files (a note like `_other-dried-edges_` in the
+file name marks a problem) and apply it to new runs. Each run also writes **mmddyy_tiles.csv**, the metrics of every
+13 µm tile, for finding local patterns. See section 14 of the manual.
+
 The full **user manual** is in the app (**Help** page) and in [`docs/User_Manual.pdf`](docs/User_Manual.pdf).
 
 ### File names
