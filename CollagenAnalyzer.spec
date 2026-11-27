@@ -19,7 +19,7 @@ for pkg in ("PySide6", "PySide6_Essentials", "PySide6_Addons", "shiboken6", "num
 binaries = []
 hiddenimports = collect_submodules("skimage.filters") + collect_submodules("skimage.morphology") + \
     collect_submodules("skimage.feature") + collect_submodules("skimage.registration") + [
-                                             "gelstats", "changemap", "nc_physics", "PySide6.QtSvg",
+                                             "gelstats", "changemap", "nc_physics", "PySide6.QtSvg", "gui.plot_style",
                                              "matplotlib.backends.backend_qtagg", "matplotlib.backends.backend_agg",
                                              "openpyxl", "collagen_core", "cloudfiles", "ml", "ml.qc", "joblib",
                                              "sklearn.ensemble", "sklearn.impute", "sklearn.pipeline",

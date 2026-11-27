@@ -53,7 +53,10 @@ Results). **Night mode** at the bottom of the sidebar switches to a dark look (s
    - a metric vs NC concentration or AMF settings
    - distributions (pore size, fiber size, fiber length, angle)
 
-   You can save the figure and export the plotted data as CSV.
+   The **Style** panel sets fonts and sizes, legend and label positions, bar width, individual data points, error bars,
+   trend lines (linear, log-x, mean; with R² and a 95 % band), axes and colours, with ready-made styles (journal, slides,
+   greyscale) and your own saved ones. Drag any label in the graph with the mouse to move it. Save the figure at a journal
+   size (shown on screen at that size) and export the plotted data as CSV.
 
 ### Quality check (new)
 
