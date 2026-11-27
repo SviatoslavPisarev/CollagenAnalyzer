@@ -70,7 +70,9 @@ file name marks a problem) and apply it to new runs. Each run also writes **mmdd
 
 The **Patterns** page clusters the per-tile table into structure types (Gaussian mixture or k-means on standardised tile
 metrics), names them ("aligned, sparse", …), and shows how their share changes after AMF per sample, where they sit in the
-image (tile maps, before and after side by side) and how the tiles spread (PCA / t-SNE). See section 16.
+image (tile maps, before and after side by side) and how the tiles spread (PCA / t-SNE). It also ranks the **strongest
+correlations**: AMF settings vs each sample's change after AMF, metric vs metric (per file or inside images) and metric vs
+depth, with Spearman's ρ, n and a multiple-testing q. See section 16.
 
 ### Fiber model (new)
 
@@ -82,7 +84,8 @@ ridge threshold for new runs (Settings step → Fiber threshold → Trained fibe
 
 The **Experiment Planner** page pairs each After-AMF file with its sample's Before-AMF file, models how the AMF and
 nanocage settings change a metric you choose (e.g. alignment S), and suggests the next conditions to test (Gaussian
-process + expected improvement), with ready-made file names. It also makes a space-filling starting design. See section 15.
+process + expected improvement), with ready-made file names. It also makes a space-filling starting design. Every graph
+(response map, effects, model check) can be shown full screen, copied or saved (PNG / PDF / SVG / TIFF). See section 15.
 
 ### Sham controls and statistics (new)
 

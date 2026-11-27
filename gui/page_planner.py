@@ -20,7 +20,7 @@ from ml import planner as PL
 import nc_physics as NP
 from .page_plots import METRICS
 from .widgets import Page, button, hint, banner, hbox
-from .widgets import ThemedCanvas
+from .widgets import FigurePanel
 from . import style
 
 GOALS = [("order_S", "Alignment — order parameter S"), ("file_order_S_pooled", "Alignment — S of all fiber pixels pooled"),
@@ -175,8 +175,10 @@ class PlannerPage(Page):
         gl.addWidget(hbox(self.fit_btn, button("Starting design (no data needed)", slot=self.starting_design,
                                                 tip="Space-filling first experiments (Latin hypercube) across the "
                                                     "ranges — for when there are fewer than about 6 experiments")))
-        gl.addWidget(hbox(button("Export plan (CSV)…", slot=self.export), button("Copy file names", "link",
-                                                                                 slot=self.copy_names)))
+        gl.addWidget(hbox(button("Export plan (CSV)…", slot=self.export),
+                          button("Save all graphs…", slot=self.save_all,
+                                 tip="Response map, effects and model check as PNG and PDF in one folder"),
+                          button("Copy file names", "link", slot=self.copy_names)))
         if not self.have_sklearn:
             gl.addWidget(banner("scikit-learn is not installed (pip install scikit-learn): only the starting design "
                                 "is available."))
@@ -241,20 +243,27 @@ class PlannerPage(Page):
         # map
         w = QWidget()
         l = QVBoxLayout(w)
-        self.map_x, self.map_y = QComboBox(), QComboBox()
-        for c in (self.map_x, self.map_y):
+        self.map_x, self.map_y, self.map_show = QComboBox(), QComboBox(), QComboBox()
+        for k, lab in (("both", "prediction and uncertainty"), ("mean", "prediction only"),
+                       ("sd", "uncertainty only")):
+            self.map_show.addItem(lab, k)
+        for c in (self.map_x, self.map_y, self.map_show):
             c.currentIndexChanged.connect(self.draw_map)
-        l.addWidget(hbox(QLabel("x"), self.map_x, QLabel("y"), self.map_y))
         self.map_fig = Figure(figsize=(8, 4.5), layout="constrained")
-        l.addWidget(ThemedCanvas(self.map_fig), 1)
-        l.addWidget(hint("Left: predicted response; right: its uncertainty (SD). Other settings are held at the best "
-                         "predicted values. Dots = experiments done, stars = suggestions."))
+        self.map_panel = FigurePanel(self.map_fig, name=lambda: "response_map_" + "_vs_".join(
+            str(c.currentData()) for c in (self.map_y, self.map_x)),
+            controls=[QLabel("x"), self.map_x, QLabel("y"), self.map_y, QLabel("Show"), self.map_show])
+        l.addWidget(self.map_panel, 1)
+        l.addWidget(hint("Predicted response and its uncertainty (SD). Other settings are held at the best "
+                         "predicted values. Dots = experiments done, stars = suggestions. Double-click the map or "
+                         "use Full screen to see it large; Save… writes a white-background PNG, PDF, SVG or TIFF."))
         self.tabs.addTab(w, "Response map")
         # effects
         w = QWidget()
         l = QVBoxLayout(w)
         self.eff_fig = Figure(figsize=(8, 5), layout="constrained")
-        l.addWidget(ThemedCanvas(self.eff_fig), 1)
+        self.eff_panel = FigurePanel(self.eff_fig, name="planner_effects")
+        l.addWidget(self.eff_panel, 1)
         l.addWidget(hint("Each panel: predicted response (± 2 SD band) when one setting changes and the others stay "
                          "at the best predicted values; dots are all experiments (their other settings may differ). Relevance = how quickly the response changes with that "
                          "setting (1 / fitted length scale)."))
@@ -265,7 +274,8 @@ class PlannerPage(Page):
         self.chk_label = hint("")
         l.addWidget(self.chk_label)
         self.chk_fig = Figure(figsize=(6, 5), layout="constrained")
-        l.addWidget(ThemedCanvas(self.chk_fig), 1)
+        self.chk_panel = FigurePanel(self.chk_fig, name="planner_model_check")
+        l.addWidget(self.chk_panel, 1)
         self.tabs.addTab(w, "Model check")
         # data
         self.data_table = QTableWidget(0, 0)
@@ -507,6 +517,33 @@ class PlannerPage(Page):
             out.insert(0, "goal", f"{self._unit()}, {self.direction.currentText()}")
             out.to_csv(p, index=False)
 
+    def save_all(self):
+        figs = [(f, n) for f, n in ((self.map_fig, "response_map"), (self.eff_fig, "effects"),
+                                    (self.chk_fig, "model_check")) if f.axes]
+        if not figs:
+            QMessageBox.information(self, "Save graphs", "Fit the model first.")
+            return
+        start = QSettings().value("plots/save_dir", QSettings().value("plots/last_dir", os.path.expanduser("~")))
+        d = QFileDialog.getExistingDirectory(self, "Folder for the planner graphs", start)
+        if not d:
+            return
+        QSettings().setValue("plots/save_dir", d)
+        saved = []
+        try:
+            for fig, n in figs:
+                style.theme_figure(fig, night=False)
+                for ext in ("png", "pdf"):
+                    p = os.path.join(d, f"planner_{n}.{ext}")
+                    fig.savefig(p, dpi=300, bbox_inches="tight", facecolor="white")
+                    saved.append(os.path.basename(p))
+        except Exception as e:
+            QMessageBox.warning(self, "Save graphs", f"Could not save:\n{e}")
+        finally:
+            for fig, _ in figs:
+                fig.canvas.draw_idle()
+        if saved:
+            self.status.setText(f"Saved {len(saved)} file(s) to {d}: " + ", ".join(saved))
+
     def copy_names(self):
         if len(self.plan):
             QGuiApplication.clipboard().setText("\n".join(self.plan["file_name"]))
@@ -554,10 +591,13 @@ class PlannerPage(Page):
         mu, sd = m.predict(U=UU)
         XX = sp.from_unit(UU)
         xs, ys = XX[:, jx].reshape(70, 70), XX[:, jy].reshape(70, 70)
-        for k, (z, title, cmap) in enumerate(((mu, unit, "viridis"), (sd, "uncertainty (SD)", "magma"))):
-            ax = fig.add_subplot(1, 2, k + 1)
+        show = self.map_show.currentData() or "both"
+        panels = [p for p in ((mu, unit, "viridis"), (sd, "uncertainty (SD)", "magma"))
+                  if show == "both" or (show == "mean") == (p[2] == "viridis")]
+        for k, (z, title, cmap) in enumerate(panels):
+            ax = fig.add_subplot(1, len(panels), k + 1)
             cs = ax.contourf(xs, ys, z.reshape(70, 70), 18, cmap=cmap)
-            fig.colorbar(cs, ax=ax, shrink=0.85)
+            fig.colorbar(cs, ax=ax, shrink=0.85, label=title)
             ax.scatter(X0[:, jx], X0[:, jy], c="white", edgecolors="black", s=28, zorder=3, label="done")
             if len(self.plan):
                 ax.scatter(self.plan[kx], self.plan[ky], marker="*", s=160, c=style.AFTER, edgecolors="black",
@@ -667,7 +707,11 @@ def _plain(axis):
     """Plain numbers (100, 1000, 0.5) instead of 10^n on a log axis."""
     from matplotlib.ticker import FuncFormatter, NullFormatter
     axis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}"))
-    axis.set_minor_formatter(NullFormatter())
+    lo, hi = sorted(abs(v) for v in axis.get_view_interval())
+    if lo > 0 and hi / lo < 30:                # short range: label the 2× and 5× ticks too
+        axis.set_minor_formatter(FuncFormatter(lambda v, _: f"{v:g}" if f"{v:e}"[0] in "25" else ""))
+    else:
+        axis.set_minor_formatter(NullFormatter())
 
 
 def _centered(w):
