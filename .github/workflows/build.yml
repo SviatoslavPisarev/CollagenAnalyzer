@@ -2,11 +2,13 @@
 # This file must be at  .github/workflows/build.yml  at the TOP of the repository.
 # The app files (CollagenAnalyzer.spec, requirements.txt, ...) may be at the top or in any sub-folder.
 # Start: repository -> Actions -> "Build app" -> Run workflow.  Download: finished run -> Artifacts.
+# Publishing a release (Releases -> Draft a new release, tag v1.2 ...) builds the app and attaches the zips to it;
+# the release text is taken from docs/releases/<tag>.md if that file exists.
 name: Build app
 on:
   workflow_dispatch:
-  push:
-    tags: ["v*"]
+  release:
+    types: [published]
 permissions:
   contents: write
 jobs:
