@@ -70,4 +70,6 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          name: Collagen Analyzer ${{ github.ref_name }}
+          body_path: ${{ hashFiles(format('docs/releases/{0}.md', github.ref_name)) != '' && format('docs/releases/{0}.md', github.ref_name) || '' }}
           files: CollagenAnalyzer-${{ matrix.name }}.zip
