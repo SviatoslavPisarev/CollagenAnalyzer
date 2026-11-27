@@ -48,6 +48,6 @@ coll = COLLECT(exe, a.binaries, a.datas, name="CollagenAnalyzer", upx=False)
 if sys.platform == "darwin":
     app = BUNDLE(coll, name="Collagen Analyzer.app", icon="assets/icon.icns",
                  bundle_identifier="edu.cuny.hunter.matsuilab.collagenanalyzer",
-                 info_plist={"NSHighResolutionCapable": True, "CFBundleShortVersionString": "1.0",
+                 info_plist={"NSHighResolutionCapable": True, "CFBundleShortVersionString": "1.1",
                              "CFBundleDisplayName": "Collagen Analyzer",
                              "NSRequiresAquaSystemAppearance": False})
