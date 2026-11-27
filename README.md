@@ -80,6 +80,29 @@ The **Experiment Planner** page pairs each After-AMF file with its sample's Befo
 nanocage settings change a metric you choose (e.g. alignment S), and suggests the next conditions to test (Gaussian
 process + expected improvement), with ready-made file names. It also makes a space-filling starting design. See section 15.
 
+### Sham controls and statistics (new)
+
+Name the second image of a **sham** gel (same handling and waiting time, no field) with `sham`, and gels without nanocages
+with `noNC`. Every file then gets a group: *NC + AMF*, *AMF only (no NC)*, *sham (NC, no field)* or *sham, no NC*. Each run's
+spreadsheet gets three new sheets: **changes** (every After file vs its Before file, with the % change minus the matching
+sham change of the same date), **statistics** (per group, with the gel as the replicate: mean, 95 % CI, paired tests) and
+**arm comparisons** (NC + AMF vs sham = the field effect; Welch, Mann–Whitney, Hedges' g, Holm-adjusted). On **Results &
+Plots**, *Change by group with statistics* shows one dot per gel with these numbers, and the % change plot can subtract
+the sham change. The **Experiment Planner** subtracts the sham change by default, so it models the AMF effect and not the
+drift from drying or re-imaging. See section 18 of the manual.
+
+### Registration and local change maps (new)
+
+The After image of each sample is aligned onto its Before image (masked phase correlation on the projections; the
+hotspot and edge do not count) and the tiles at the same place in the gel are compared: **registration** sheet (shift,
+similarity, status), **mmddyy_tile_changes.csv** and **change_map_mmddyy_##.png** (before, after moved onto before,
+overlay, maps of the change in alignment, fiber density and pore size). See section 19.
+
+### Nanocage physics (new)
+
+Section 5 of the Experiment Planner (and `python nc_physics.py --help`) estimates the Brownian and Néel relaxation times,
+the phase lag at the AMF frequency and the field's alignment/torque for a given nanocage size. See section 20.
+
 ### Files in iCloud Drive
 
 Data in iCloud Drive with "Optimize Mac Storage" may be only a placeholder on the Mac, and macOS can remove the local copy
@@ -104,11 +127,13 @@ The app reads the experimental conditions from the file names, for example:
 |---|---|
 | `mmddyy_##_` (start, required) | date and sample number; files with the same start are compared before vs after |
 | `AMF` | marks the After-AMF file |
+| `sham` | marks the second image of a sham control gel (no field) |
 | `500Hz`, `3min`, `10Vpp`, `8.5V` | AMF frequency, time, Vp-p set on the instrument, measured voltage |
 | `2App`, `500turns` | AMF current Ap-p set on the power supply (not the measured current), coil turns (e.g. 200 or 500) |
 | `40mTpk` / `28mTrms` | measured magnetic field, peak or rms (also `mTpp`); converted to a peak value in `amf_b_peak_mT` |
 | `Collagen_3mgml` | collagen concentration |
 | `NC_0.5nM` | theoretical local nanocage concentration |
+| `noNC` | gel without nanocages (same as `NC_0nM`) |
 | `premixed` / `inc45min` | NCs mixed in before gelation / incubated on the gel for that time |
 | `other-…` | free note (use hyphens inside it) |
 | last part | file number shown in legends |
@@ -139,6 +164,12 @@ Downloads under Actions → Artifacts are deleted after 90 days, so share the zi
 To build on your own computer: `pip install -r requirements.txt pyinstaller`, then
 `pyinstaller CollagenAnalyzer.spec --noconfirm`. The result is in `dist/`.
 
+## Tests
+
+`pip install pytest`, then `python -m pytest tests` (about 15 s). They check the file-name parsing, the statistics against
+SciPy, the registration and the image metrics on synthetic fiber networks with known order parameter and angle. GitHub runs
+them on every push (**Actions → Tests**).
+
 ## What's in this repository
 
 | Path | Contents |
@@ -146,10 +177,17 @@ To build on your own computer: `pip install -r requirements.txt pyinstaller`, th
 | `CollagenAnalyzer.py` | start file of the app |
 | `collagen_core.py` | analysis engine (image processing, metrics, figures, spreadsheets) |
 | `cloudfiles.py` | waits for iCloud Drive downloads and frees the local copies again |
+| `gelstats.py` | groups (NC + AMF, AMF only, sham), sham correction and statistics with the gel as the replicate |
+| `changemap.py` | before/after registration and tile-by-tile change maps |
+| `nc_physics.py` | relaxation times, phase lag and torque of the nanocages in the AMF |
+| `ml/` | quality check, Experiment Planner, Patterns and the trained fiber model |
+| `tests/` | automatic tests, including synthetic fiber networks with known alignment (`tests/synth.py`) |
 | `gui/` | the app's windows and pages |
 | `docs/` | user manual (HTML + PDF) and its screenshots |
 | `assets/` | icon and start screen |
 | `requirements.txt` | Python packages |
 | `Start_Mac.command`, `Start_Windows.bat` | launchers for running from the source code |
 | `CollagenAnalyzer.spec`, `.github/workflows/build.yml` | standalone-app build |
+| `.github/workflows/tests.yml` | runs the tests on every push and pull request |
+| `CITATION.cff` | how to cite the app (GitHub: “Cite this repository”) |
 | `.gitignore` | keeps Python cache files (`__pycache__`) and `.DS_Store` out of the repository |

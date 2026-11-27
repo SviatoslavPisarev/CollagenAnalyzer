@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 from PySide6.QtCore import Qt, QSettings
 from PySide6.QtGui import QGuiApplication
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFormLayout, QGroupBox,
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox,
                                QHeaderView, QLabel, QMessageBox, QScrollArea, QSpinBox, QSplitter, QTabWidget,
                                QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, QAbstractItemView)
 
@@ -17,6 +17,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 
 from ml import planner as PL
+import nc_physics as NP
 from .page_plots import METRICS
 from .widgets import Page, button, hint, banner, hbox
 from . import style
@@ -90,6 +91,13 @@ class PlannerPage(Page):
         self.excl_qc.setChecked(True)
         self.excl_qc.toggled.connect(self.rebuild)
         gl.addWidget(self.excl_qc)
+        self.sub_sham = QCheckBox("Subtract the change of sham gels (same date) from each experiment")
+        self.sub_sham.setChecked(True)
+        self.sub_sham.setToolTip("Sham gels (‘sham’ in the file name: same handling and wait, no field) show how "
+                                 "much a gel changes without AMF (drying, re-imaging). With this on, the model "
+                                 "learns the AMF effect beyond that drift. Sham gels are never experiments.")
+        self.sub_sham.toggled.connect(self.rebuild)
+        gl.addWidget(self.sub_sham)
         cl.addWidget(g)
 
         g = QGroupBox("2. Goal")
@@ -174,6 +182,34 @@ class PlannerPage(Page):
         self.status = hint("")
         gl.addWidget(self.status)
         cl.addWidget(g)
+
+        g = QGroupBox("5. Nanocage physics (estimate)")
+        f = QFormLayout(g)
+        self.phys = {}
+        for key, lab, lo, hi, val, dec, suf, tip in [
+                ("dh", "Hydrodynamic diameter", 1, 2000, 30, 1, " nm", "From DLS: core + coating + bound water"),
+                ("core", "Magnetic core / cage diameter", 1, 500, 20, 1, " nm", "Outer diameter of the iron oxide"),
+                ("shell", "Cage shell thickness (0 = solid)", 0, 250, 0, 1, " nm",
+                 "For a hollow nanocage: thickness of the iron oxide shell (smaller magnetic volume)"),
+                ("eta", "Local viscosity", 0.1, 1e5, 0.89, 2, " mPa·s", "Water at 25 °C = 0.89; 37 °C = 0.69"),
+                ("T", "Temperature", 270, 330, 298.15, 1, " K", ""),
+                ("K", "Anisotropy constant K", 1e2, 1e6, 1.1e4, 0, " J/m³", "Bulk magnetite ≈ 1.1×10⁴ J/m³; "
+                 "nanoparticles often higher (surface anisotropy)"),
+                ("freq", "AMF frequency", 1, 1e6, 500, 0, " Hz", ""),
+                ("field", "Field amplitude (peak)", 0.01, 1000, 40, 2, " mT", "")]:
+            w = QDoubleSpinBox()
+            w.setRange(lo, hi); w.setDecimals(dec); w.setValue(val); w.setSuffix(suf)
+            w.setToolTip(tip)
+            w.valueChanged.connect(self.update_physics)
+            self.phys[key] = w
+            f.addRow(lab, w)
+        self.phys_out = hint("")
+        f.addRow(self.phys_out)
+        f.addRow(hint("Brownian = the particle turns in the liquid (this moves what it is bound to); Néel = the "
+                      "moment flips inside the particle. Below the loss peak a free particle turns nearly in phase "
+                      "with the field. Textbook estimate (Rosensweig 2002); see nc_physics.py."))
+        cl.addWidget(g)
+        self.update_physics()
         cl.addStretch(1)
         sa = QScrollArea()
         sa.setWidgetResizable(True)
@@ -286,7 +322,8 @@ class PlannerPage(Page):
         notes = []
         if len(self.pf):
             self.exp, notes = PL.build_experiments(self.pf, self.metric.currentData(), self.change.currentData(),
-                                                   self.excl_qc.isChecked())
+                                                   self.excl_qc.isChecked(),
+                                                   "subtract" if self.sub_sham.isChecked() else "none")
         else:
             self.exp = pd.DataFrame()
         desc = PL.describe_variables(self.exp) if len(self.exp) else {}
@@ -312,6 +349,15 @@ class PlannerPage(Page):
              f"(After-AMF files with a Before-AMF file) in {n_s} sample(s)." if len(self.pf) else
              "Nothing loaded. Results of a run are added automatically.") + ("\n" + "; ".join(notes) if notes else ""))
         self._fill_data()
+
+    def update_physics(self, *_):
+        v = {k: w.value() for k, w in self.phys.items()}
+        try:
+            r = NP.relaxation(v["dh"], v["core"], v["shell"] or None, v["eta"], v["T"], v["K"], 1e-9,
+                              NP.MAGNETITE["Ms"], v["freq"], v["field"])
+            self.phys_out.setText("\n".join(NP.describe(r)))
+        except (ValueError, OverflowError, ZeroDivisionError) as e:
+            self.phys_out.setText(f"Cannot compute: {e}")
 
     def _use(self, key):
         return self.vt.cellWidget(self.vrow[key], 0).findChild(QCheckBox)
@@ -594,8 +640,9 @@ class PlannerPage(Page):
             t.setColumnCount(0)
             return
         keys = [k for k in PL.VAR if self.exp[k].notna().any()]
-        cols = ["file", "sample", "before", "after", "y"] + keys
-        heads = ["After-AMF file", "Sample", "Before", "After", self._unit()] + [_axis_label(k) for k in keys]
+        cols = ["file", "sample", "arm", "before", "after", "y"] + keys
+        heads = ["After-AMF file", "Sample", "Group", "Before", "After",
+                 self._unit() + (" − sham" if self.sub_sham.isChecked() else "")] + [_axis_label(k) for k in keys]
         t.setColumnCount(len(cols))
         t.setRowCount(len(self.exp))
         t.setHorizontalHeaderLabels(heads)

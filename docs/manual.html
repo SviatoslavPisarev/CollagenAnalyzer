@@ -54,7 +54,11 @@ AMF treatment, across samples and across experiments, and makes publication-read
 <a href="#qc">14. Quality check and the per-tile table</a><br>
 <a href="#planner">15. Experiment Planner</a><br>
 <a href="#patterns">16. Patterns (tile types)</a><br>
-<a href="#fibermodel">17. Fiber model (trained fiber mask)</a></p>
+<a href="#fibermodel">17. Fiber model (trained fiber mask)</a><br>
+<a href="#controls">18. Sham controls and statistics</a><br>
+<a href="#changemap">19. Registration and local change maps</a><br>
+<a href="#physics">20. Nanocage physics (estimate)</a><br>
+<a href="#tests">21. Tests, validation and citing the app</a></p>
 </div>
 
 <h2 id="install"><a name="install"></a>1. Installing and starting the app</h2>
@@ -123,6 +127,7 @@ after the first two; parts that are missing are simply left empty.</p>
 <tr><th>Part of the name</th><th>Meaning</th><th>Accepted forms</th></tr>
 <tr><td><code>mmddyy_##_</code> (start, required)</td><td>Date and sample number. Files with the same start are one sample and are compared before vs after.</td><td><code>112026_3_</code></td></tr>
 <tr><td><code>AMF</code></td><td>Marks the <b>After AMF</b> file; files without it are <b>Before AMF</b> (the word can be changed on the Parameters page)</td><td><code>_AMF_</code></td></tr>
+<tr><td><code>sham</code></td><td>Marks the second image of a <b>sham control</b> gel (“After sham”): same handling, transport and waiting time as an AMF gel, but no field. Its change shows the drift from drying and re-imaging (Section 18). Wins over <code>AMF</code> if both appear.</td><td><code>_sham_</code>, <code>_sham3min_</code>, <code>-sham-</code></td></tr>
 <tr><td><code>###Hz</code></td><td>AMF frequency</td><td><code>500Hz</code>, <code>1kHz</code>, <code>1.5kHz</code></td></tr>
 <tr><td>time</td><td>AMF exposure time</td><td><code>3min</code>, <code>1.5min</code>, <code>3min30s</code>, <code>3m30s</code>, <code>90s</code></td></tr>
 <tr><td><code>#Vpp</code></td><td>AMF Vp-p set on the instrument</td><td><code>10Vpp</code>, <code>10Vp-p</code>, <code>10Vpk-pk</code>, <code>2p5Vpp</code>, <code>500mVpp</code></td></tr>
@@ -133,6 +138,7 @@ after the first two; parts that are missing are simply left empty.</p>
 <code>amf_b_peak_mT</code> converts it to the peak value (rms × √2, peak-to-peak ÷ 2, sinusoidal field); without pk/rms it stays empty.</td><td><code>40mTpk</code>, <code>40mTpeak</code>, <code>28mTrms</code>, <code>28mT-rms</code>, <code>80mTpp</code>, <code>400uTrms</code></td></tr>
 <tr><td><code>Collagen_#mgml</code></td><td>Collagen concentration</td><td><code>Collagen_3mgml</code>, <code>Collagen_2.5mgml</code>, <code>Collagen_2p5mgml</code></td></tr>
 <tr><td><code>NC_#nM</code></td><td>Theoretical local nanocage concentration</td><td><code>NC_0.5nM</code>, <code>NC0.5nM</code>, <code>NCs_500pM</code>, <code>NC_2uM</code></td></tr>
+<tr><td><code>noNC</code></td><td>Gel <b>without nanocages</b> (concentration 0) — the AMF-only control, or a sham without NCs</td><td><code>noNC</code>, <code>no-NCs</code>, <code>NC_0nM</code></td></tr>
 <tr><td><code>premixed</code></td><td>NCs mixed into the collagen before gelation</td><td><code>premixed</code>, <code>premix</code>, <code>pre-mixed</code></td></tr>
 <tr><td><code>inc45min</code></td><td>NCs incubated on the polymerized gel for that time</td><td><code>inc45min</code>, <code>incubated_45min</code>, <code>incub_1h30min</code>, <code>inc1.5h</code></td></tr>
 <tr><td><code>other-…</code></td><td>Free note (use hyphens inside it); not read for anything else</td><td><code>other-dried-edges</code>, <code>other_rep2</code></td></tr>
@@ -290,7 +296,8 @@ files (e.g. <code>500 Hz</code>, <code>0.5 nM</code>); <i>All / None</i> act on 
 <tr><th>Graph</th><th>Use it for</th><th>Options</th></tr>
 <tr><td>Metric vs depth / time</td><td>How a metric changes through the gel or over time; one line per file</td><td>x-axis (depth, time, image number), line style, smoothing over N images</td></tr>
 <tr><td>Metric per file</td><td>Comparing files: bars (mean ± SD/SEM), box plots, violin plots or points</td><td>Show every analysed image as a dot</td></tr>
-<tr><td>Change after AMF, per sample</td><td>(after − before) / before in % for every sample that has both</td><td>—</td></tr>
+<tr><td>Change after AMF / sham, per sample</td><td>(after − before) / before in % for every sample that has both; sham gels are grey</td><td><i>Subtract the change of the sham gels</i>: each bar minus the mean sham change of the same date</td></tr>
+<tr><td>Change by group with statistics</td><td>One dot per gel, bars = mean ± 95 % CI for each group (NC + AMF, AMF only, sham); p-values and the field-effect comparison below the graph (Section 18)</td><td>% or absolute change; one panel per group value (e.g. AMF frequency)</td></tr>
 <tr><td>Metric vs experimental parameter</td><td>Dose–response style: a metric against NC concentration, collagen, AMF frequency/time/voltage, incubation time</td><td>Points or points joined by lines (per color), log x-axis</td></tr>
 <tr><td>Distribution</td><td>Pore size, fiber size, fiber length (curves or cumulative) and fiber angle (rose plots)</td><td>Distribution curve or cumulative</td></tr>
 </table>
@@ -300,7 +307,7 @@ files (e.g. <code>500 Hz</code>, <code>0.5 nM</code>); <i>All / None</i> act on 
 <ul>
 <li><b>Panels:</b> all files on one graph; one panel per file (side by side); or one panel per group — by sample, date, condition,
 NC concentration, NC mixing, collagen or AMF frequency. <i>Panels per row</i> and <i>Same y-axis</i> control the grid.</li>
-<li><b>Colors:</b> before/after (blue/orange), each file its own color, or by sample, NC concentration, mixing, collagen, AMF
+<li><b>Colors:</b> before/after (blue/orange, sham grey), group (NC + AMF / AMF only / sham), each file its own color, or by sample, NC concentration, mixing, collagen, AMF
 frequency/time, date (numbers get a color scale).</li>
 <li><b>Legend labels:</b> condition + AMF settings + file number (default), sample + condition, full name, file number, or condition + NC conditions.
 <b>Legend</b> position: automatic, inside, right, below, or none.</li>
@@ -320,6 +327,14 @@ metadata (<code>slice_…</code>). Sheet <b>per file</b>: mean and SD per file. 
 <tr><td><code>summary.xlsx</code></td><td>(several folders) all rows of all folders with <code>folder</code> / <code>results_folder</code> columns, plus a <b>folders</b> overview sheet.</td></tr>
 <tr><td><code>mmddyy_summary.xlsx</code>, sheet <b>quality</b></td><td>One row per file: QC status (ok / check), the reasons, the
 trained model's probability (if used) and the numbers behind them (Section 14).</td></tr>
+<tr><td><code>mmddyy_summary.xlsx</code>, sheets <b>changes</b>, <b>statistics</b>, <b>arm comparisons</b></td><td>Each After file vs its
+sample's Before file(s) for the key metrics: before, after, % change and % change minus the matched sham; per-group statistics with
+gels as replicates; field-effect and NC-effect comparisons (Section 18). In the combined <code>summary.xlsx</code> they are recomputed over
+all folders.</td></tr>
+<tr><td><code>mmddyy_summary.xlsx</code>, sheet <b>registration</b></td><td>Per After file: shift onto the Before image, similarity before and
+after aligning, status, and the mean / SD of the local (tile) changes (Section 19).</td></tr>
+<tr><td><code>mmddyy_tile_changes.csv</code>, <code>change_map_mmddyy_##.png</code></td><td>Tile-by-tile change at the same place in the gel,
+and its maps (Section 19).</td></tr>
 <tr><td><code>mmddyy_tiles.csv</code></td><td>Per-tile table: the metrics of every tile (default 13 µm) of every analysed image, with its
 position and a dark / blurred flag (Section 14).</td></tr>
 <tr><td><code>mmddyy_distributions.npz</code></td><td>Histograms behind the distribution graphs; used by Results &amp; Plots.</td></tr>
@@ -352,6 +367,9 @@ position and a dark / blurred flag (Section 14).</td></tr>
 <ul>
 <li><b>Same imaging settings</b> for files you compare (laser power, gain/HV, pinhole, zoom, z-step). The app warns in the log when they differ.</li>
 <li><b>Threshold:</b> for before-vs-after claims, confirm the result with one <b>fixed</b> threshold for both files (chosen with the preview).</li>
+<li><b>Include sham gels on every imaging day.</b> A sham gel is handled exactly like an AMF gel (taken out, carried, left for the
+same time, re-imaged) but gets no field. Without it, drying or re-focusing can look like remodeling. An AMF-only gel (no NCs) shows
+what the field does without nanocages. Name them with <code>sham</code> and <code>noNC</code> (Section 3).</li>
 <li><b>Replicates are gels or fields of view, not slices.</b> Neighbouring slices of a stack show the same fibers; the SD over slices describes
 variation with depth, not uncertainty of the sample mean. Use several gels/fields per condition for statistics.</li>
 <li>Check the <b>threshold-sensitivity</b> columns and the <b>edge-excluded</b> % — high values make pore sizes less reliable.</li>
@@ -423,6 +441,10 @@ full grid. Results of each run are added automatically; older results can be loa
 same results folder); the response is <i>after − before</i> or the <i>% change</i> of the chosen metric (file means). Pairing
 within a sample removes most of the gel-to-gel variation. Files the quality check marked <i>check</i> are left out (untick to
 keep them). The <b>Experiments</b> tab lists what was used.</p>
+<p><b>Sham controls.</b> Sham gels are never experiments. With <i>Subtract the change of sham gels</i> (on by default) the response
+is the change minus the mean change of the sham gels of the same date (all dates if that day has none), so the model learns the
+AMF effect and not the drift; experiments without any matching sham are left out. With no sham in the data the raw change is used
+and the planner says so.</p>
 <p><b>Settings to optimise.</b> Tick the settings that differ between experiments (ticked automatically when they vary in the
 data). <i>From</i>–<i>To</i> is the range in which suggestions may fall: widen it to the instrument's limits to explore.
 Suggestions are rounded to <i>Step</i>. <i>Log</i> treats equal ratios as equal steps (100→200 Hz like 500→1000 Hz).</p>
@@ -469,5 +491,77 @@ train again. The out-of-bag accuracy is measured on the painted pixels only — 
 mask as before. The settings sheet records the model and the ±10 % QC columns move the cutoff. Analyse every file you
 compare with the same model, and keep the background flattening setting the model was trained with. A model takes about
 3 s more per 1024 × 1024 image.</p>
+<h2 id="controls" class="newpage"><a name="controls"></a>18. Sham controls and statistics</h2>
+<p>Every file gets a <b>group</b> (column <code>arm</code>), read from the names of its sample's After files:</p>
+<table>
+<tr><th>Group</th><th>File names</th><th>Answers</th></tr>
+<tr><td>NC + AMF</td><td>After file with <code>AMF</code>, nanocages present (or not stated)</td><td>the treatment</td></tr>
+<tr><td>AMF only (no NC)</td><td>After file with <code>AMF</code> and <code>noNC</code> / <code>NC_0nM</code></td><td>does the field alone change the gel (heating, vibration)?</td></tr>
+<tr><td>sham (NC, no field)</td><td>After file with <code>sham</code></td><td>how much does a gel change without the field (drying, handling, re-imaging)?</td></tr>
+<tr><td>sham, no NC</td><td>After file with <code>sham</code> and <code>noNC</code></td><td>drift of a plain gel; do NCs alone change it?</td></tr>
+</table>
+<p><b>Pairing.</b> Each After file (AMF or sham) is compared with the Before file(s) of its own sample, using the file means.</p>
+<p><b>Control-corrected change.</b> <i>change − mean change of the matching sham gels</i>: NC + AMF is corrected with “sham (NC, no field)”,
+AMF only with “sham, no NC” (or the NC sham if there is none). Shams of the same date are used; if that day has none, all shams
+(column <code>control_match</code> says which). Use it for graphs and for the planner.</p>
+<p><b>Statistics.</b> The gel is the replicate: several After files of one gel in the same group are averaged first, and slices are
+never counted as replicates. For each group: number of gels, mean, SD, 95 % confidence interval and a paired test of the change
+against 0 (t-test — the same as a paired t-test of before vs after — and the Wilcoxon signed-rank test). Between groups: difference of
+means with a 95 % CI, Welch's t-test, Mann–Whitney U and the effect size Hedges' g; p-values are Holm-adjusted within each metric
+(<code>_holm</code> columns).</p>
+<div class="tip"><b>Which p-value shows a field effect?</b> The comparison <i>NC + AMF vs sham</i> (sheet <b>arm comparisons</b>, or the
+note under <i>Change by group with statistics</i>). Do not test the control-corrected values against 0: the correction ignores the
+uncertainty of the sham mean.</div>
+<div class="warn">With 2–3 gels per group a test has little power, and the rank tests cannot reach p &lt; 0.05 with too few gels: the
+Wilcoxon test needs at least 6 gels, Mann–Whitney at least 4 per group. Report the mean change with its 95 % CI and the individual gels (the dots) together with p.</div>
+<p>Older results (made before sham support) are fixed on loading: a file with <code>sham</code> in its name that was stored as
+“Before AMF” becomes “After sham”, and <code>noNC</code> sets the NC concentration to 0.</p>
+
+<h2 id="changemap" class="newpage"><a name="changemap"></a>19. Registration and local change maps</h2>
+<p>For every sample the After image is aligned onto the Before image (x/y shift, masked phase correlation, so the excluded edge and
+the reflection hotspot do not count). Projections are used: the max projection of a z-stack (insensitive to a small z offset), the
+first time point of a time-lapse, or the image.</p>
+<p><b>Is it the same place?</b> <code>r_registered</code> is the correlation of the two images once aligned. Because real remodeling
+lowers r, it is compared with r at 12 large random shifts (unrelated places): <code>z</code> = how far above those it is.</p>
+<table>
+<tr><th>Status</th><th>Rule</th><th>Meaning</th></tr>
+<tr><td>registered</td><td>r ≥ 0.5</td><td>same field, aligned</td></tr>
+<tr><td>same field, strongly changed</td><td>z ≥ 5 and r ≥ 0.1</td><td>same place, much changed; the shift is less exact</td></tr>
+<tr><td>different field?</td><td>otherwise</td><td>probably not the same place: no tile map</td></tr>
+</table>
+<p><b>Local change.</b> The tiles of the Before image (Section 14) are paired with the After tiles at the same place in the gel
+(nearest tile after the shift; <code>overlap</code> = shared area, 0.25–1). <code>mmddyy_tile_changes.csv</code> has the before, after and
+change of every tile metric; the figure <code>change_map_mmddyy_##.png</code> shows Before, After moved onto Before, an overlay (green
+before, magenta after; white where they agree) and maps of the change in alignment S, fiber area fraction and pore size. The
+<b>registration</b> sheet gives the mean and SD of the tile changes.</p>
+<div class="tip">Where the nanocages are can be imaged too (fluorescent label or their own reflectance): with the tile positions in
+<code>mmddyy_tile_changes.csv</code> the local change can then be related to the local NC density — the most direct evidence that the
+NCs cause the remodeling.</div>
+<p>Turn the figure off on the Outputs page (<i>Registered before/after and local change maps</i>). Without the tile table
+(<code>--no-tiles</code>) only the shift and similarity are reported.</p>
+
+<h2 id="physics" class="newpage"><a name="physics"></a>20. Nanocage physics (estimate)</h2>
+<p>Section 5 of the Experiment Planner estimates how the nanocages follow the field, from their size and the field settings:</p>
+<ul>
+<li><b>Brownian relaxation</b> τ<sub>B</sub> = 3ηV<sub>h</sub>/k<sub>B</sub>T — the whole particle turns in the liquid (this is what can move a
+fiber it is bound to). V<sub>h</sub> is the hydrodynamic volume (DLS size), η the local viscosity.</li>
+<li><b>Néel relaxation</b> τ<sub>N</sub> = τ<sub>0</sub> exp(KV<sub>m</sub>/k<sub>B</sub>T) — the moment flips inside the particle without turning it.
+V<sub>m</sub> is the magnetic volume (smaller for a hollow cage: give the shell thickness), K the anisotropy constant (bulk magnetite
+≈ 1.1 × 10⁴ J/m³; nanoparticles often higher).</li>
+<li>The <b>phase lag</b> at the AMF frequency, atan(2πfτ), and the <b>loss peak</b> 1/(2πτ). Well below the peak a free particle turns nearly
+in phase with the field.</li>
+<li>ξ = mB/k<sub>B</sub>T says whether the field saturates the moments, and mB is the largest torque on a particle.</li>
+</ul>
+<p>For example, a 20 nm solid core with a 30 nm hydrodynamic size in water has τ<sub>B</sub> ≈ 9 µs (loss peak ≈ 17 kHz), so at
+500–1800 Hz it turns almost in phase with the field. These are textbook estimates (Rosensweig 2002); a particle bound to a fiber
+cannot rotate freely. The same calculation runs on the command line: <code>python nc_physics.py --dh 30 --core 20 --freq 500 --field 40</code>.</p>
+
+<h2 id="tests" class="newpage"><a name="tests"></a>21. Tests, validation and citing the app</h2>
+<p>The folder <code>tests/</code> checks the app automatically (GitHub runs them on every change: <i>Actions → Tests</i>). They include
+<b>synthetic fiber networks with known structure</b> (<code>tests/synth.py</code>): straight fibers whose directions follow a
+distribution with a known order parameter S and mean angle. The measured S and angle must match the true values, S must rise with
+alignment, and fiber density must rise (and pore size fall) with the number of fibers. The same generator can make test images
+for method validation in a paper. Run them yourself with <code>pip install pytest</code> and <code>python -m pytest tests</code>.</p>
+<p>To cite the app, use <code>CITATION.cff</code> (GitHub shows “Cite this repository”). A release archived on Zenodo gets a DOI.</p>
 </body>
 </html>

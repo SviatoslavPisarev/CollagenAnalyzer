@@ -15,6 +15,7 @@ ERROR = "#b3261e"
 OK = "#2e7d32"
 BEFORE = "#3b6fb6"
 AFTER = "#d9622b"
+SHAM = "#7f8c8d"
 
 QSS = f"""
 * {{ color: {TEXT}; }}

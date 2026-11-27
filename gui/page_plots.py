@@ -18,6 +18,7 @@ from matplotlib.figure import Figure
 import matplotlib.colors as mcolors
 
 import collagen_core as core
+import gelstats as GS
 from .widgets import Page, button, hint, hbox
 from . import style
 
@@ -56,18 +57,21 @@ PARAM_X = [  # column, label, scale
     ("amf_ampere_turns_pp", "Ap-p × turns", 1.0),
     ("nc_incubation_time_s", "NC incubation time (min)", 1 / 60),
 ]
-COLOR_BY = [("condition", "Before / after AMF"), ("file", "Each file its own color"), ("sample", "Sample"),
+COLOR_BY = [("condition", "Before / after AMF"), ("arm", "Group (NC + AMF / AMF only / sham)"),
+            ("file", "Each file its own color"), ("sample", "Sample"),
             ("nc_conc_nM", "NC concentration"), ("nc_mixing", "NC mixing"), ("collagen_mg_ml", "Collagen"),
             ("amf_freq_hz", "AMF frequency"), ("amf_time_s", "AMF time"), ("amf_coil_turns", "Coil"),
             ("amf_b_peak_mT", "Magnetic field"), ("date", "Date")]
-GROUP_BY = [("sample", "Sample"), ("date", "Date"), ("condition", "Condition"), ("nc_conc_nM", "NC concentration"),
+GROUP_BY = [("sample", "Sample"), ("date", "Date"), ("condition", "Condition"), ("arm", "Group (NC + AMF, sham, …)"),
+            ("nc_conc_nM", "NC concentration"),
             ("nc_mixing", "NC mixing"), ("collagen_mg_ml", "Collagen"), ("amf_freq_hz", "AMF frequency")]
 LABELS = [("cond", "Condition + AMF + file no."), ("sample_cond", "Sample + condition"), ("file", "Full file name"),
           ("no", "File number only"), ("nc", "Condition + NC conditions")]
 PLOT_TYPES = [
     ("series", "Metric vs depth / time (one line per file)"),
     ("perfile", "Metric per file (bars, box plots or points)"),
-    ("change", "Change after AMF, per sample (%)"),
+    ("change", "Change after AMF / sham, per sample (%)"),
+    ("stats", "Change by group with statistics (one dot per gel)"),
     ("param", "Metric vs experimental parameter (NC conc., AMF …)"),
     ("dist", "Distribution (pore size, fiber size, length, angle)"),
 ]
@@ -120,6 +124,9 @@ class ResultsStore:
         srcs = df.groupby("file")["_src"].nunique()
         df = df.copy()
         df["uid"] = [f if srcs[f] == 1 else f"{f}  [{os.path.basename(s)}]" for f, s in zip(df["file"], df["_src"])]
+        df = GS.upgrade_labels(df)              # older results: _sham_ / _noNC_ files
+        first = GS.assign_arms(df.groupby("uid", sort=False).first().reset_index())
+        df["arm"] = df["uid"].map(dict(zip(first["uid"], first["arm"])))
         self.per = df.reset_index(drop=True)
         self.sources.append(path)
         for src in self.per["_src"].unique():
@@ -239,6 +246,11 @@ class PlotsPage(Page):
         f.addRow("", self.points)
         self.logx = QCheckBox("Logarithmic x-axis")
         f.addRow("", self.logx)
+        self.sub_sham = QCheckBox("Subtract the change of the sham gels (same date)")
+        self.sub_sham.setToolTip("Sham gels (‘sham’ in the file name) show how much a gel changes without the field "
+                                 "(drying, handling, re-imaging). With this on, each bar is the AMF change minus the "
+                                 "mean sham change of the same date (all dates if that day has no sham).")
+        f.addRow("", self.sub_sham)
         self.form3 = f
         cl.addWidget(g)
 
@@ -336,7 +348,7 @@ class PlotsPage(Page):
             w.currentIndexChanged.connect(self._controls_changed)
         for w in (self.smooth, self.ncols, self.font, self.fig_w, self.fig_h):
             w.valueChanged.connect(self._schedule)
-        for w in (self.points, self.logx, self.share_y, self.grid, self.auto_size):
+        for w in (self.points, self.logx, self.share_y, self.grid, self.auto_size, self.sub_sham):
             w.toggled.connect(self._schedule)
         for w in (self.title, self.xlabel, self.ylabel, self.ymin, self.ymax):
             w.textChanged.connect(self._schedule)
@@ -422,7 +434,8 @@ class PlotsPage(Page):
                     it.setToolTip(0, f"{u}\nQuality check: {r.get('qc_flags')}")
                 it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
                 it.setCheckState(0, Qt.Checked if (old is None or u in old) else Qt.Unchecked)
-                it.setForeground(1, QColor(style.AFTER if r["condition"] == "After AMF" else style.BEFORE))
+                it.setForeground(1, QColor(style.AFTER if r["condition"] == "After AMF" else
+                                           style.SHAM if GS.is_sham(r["condition"]) else style.BEFORE))
                 top.addChild(it)
             self.tree.addTopLevelItem(top)
             top.setExpanded(True)
@@ -514,6 +527,9 @@ class PlotsPage(Page):
         elif t == "change":
             for k, lab in [("bar", "Bars")]:
                 self.style_.addItem(lab, k)
+        elif t == "stats":
+            for k, lab in [("pct", "% change (after vs before)"), ("diff", "Absolute change (after − before)")]:
+                self.style_.addItem(lab, k)
         elif t == "param":
             for k, lab, _ in self.param_x():
                 self.xaxis.addItem(lab, k)
@@ -530,10 +546,10 @@ class PlotsPage(Page):
         f = self.form3
         vis = dict(metric=t != "dist", dist=t == "dist", xaxis=t in ("series", "param"), style=True,
                    err=t in ("perfile", "param", "series"), smooth=t == "series", points=t in ("perfile", "series"),
-                   logx=t == "param")
+                   logx=t == "param", sub_sham=t == "change")
         for w, on in [(self.metric, vis["metric"]), (self.dist, vis["dist"]), (self.xaxis, vis["xaxis"]),
                       (self.style_, vis["style"]), (self.err, vis["err"]), (self.smooth, vis["smooth"]),
-                      (self.points, vis["points"]), (self.logx, vis["logx"])]:
+                      (self.points, vis["points"]), (self.logx, vis["logx"]), (self.sub_sham, vis["sub_sham"])]:
             f.setRowVisible(w, on)
         self.points.setText("Show every analysed image as a dot" if t == "perfile" else
                             "Show the unsmoothed values too")
@@ -548,6 +564,8 @@ class PlotsPage(Page):
     # ------------------------------------------------------------------ helpers
     @staticmethod
     def _cond(r):
+        if GS.is_sham(r.get("condition")):
+            return "After sham"
         if r.get("condition") != "After AMF":
             return "Before AMF"
         parts = [f"{r['amf_freq_hz']:g} Hz" if pd.notna(r.get("amf_freq_hz")) else None,
@@ -585,7 +603,8 @@ class PlotsPage(Page):
         if key == "condition":
             out, used, k = {}, set(), 0
             for u in files:
-                c = style.BEFORE if info[u]["condition"] != "After AMF" else style.AFTER
+                cnd = info[u]["condition"]
+                c = style.AFTER if cnd == "After AMF" else style.SHAM if GS.is_sham(cnd) else style.BEFORE
                 tag = (info[u]["sample"], c)
                 if tag in used:
                     c = core.EXTRA_COLORS[k % len(core.EXTRA_COLORS)]; k += 1
@@ -594,6 +613,10 @@ class PlotsPage(Page):
             return out
         if key == "file":
             return {u: TAB[i % len(TAB)] for i, u in enumerate(files)}
+        if key == "arm":
+            cats = list(dict.fromkeys(str(info[u].get("arm") or "") for u in files))
+            return {u: GS.ARM_COLORS.get(str(info[u].get("arm")), TAB[cats.index(str(info[u].get("arm") or "")) % len(TAB)])
+                    for u in files}
         vals = [info[u].get(key) for u in files]
         num = [v for v in vals if isinstance(v, (int, float, np.number)) and pd.notna(v)]
         if key not in ("sample", "date", "nc_mixing") and len(num) == len(vals) and len(set(num)) > 1:
@@ -709,7 +732,7 @@ class PlotsPage(Page):
             return
         try:
             {"series": self.plot_series, "perfile": self.plot_perfile, "change": self.plot_change,
-             "param": self.plot_param, "dist": self.plot_dist}[self.ptype.currentData()](files)
+             "stats": self.plot_stats, "param": self.plot_param, "dist": self.plot_dist}[self.ptype.currentData()](files)
         except Exception as e:
             import traceback
             self.fig.clear()
@@ -821,29 +844,46 @@ class PlotsPage(Page):
         self.note.setText("Bars: mean over the analysed images of each file; error bars as chosen. Images of one "
                           "stack are not independent replicates — use separate gels for statistics.")
 
+    def _per_file(self, files, col):
+        """Per-file table of the ticked files (mean of col over each file's images) for gelstats."""
+        per = self.store.per[self.store.per["uid"].isin(files)]
+        g = per.groupby("uid", sort=False)
+        keep = [c for c in ("date", "sample", "_src", "condition", "arm", "nc_conc_nM", "qc_status", "amf_freq_hz",
+                            "amf_time_s", "amf_b_peak_mT", "nc_mixing", "collagen_mg_ml") if c in per]
+        pf = g[keep].first().reset_index()
+        pf["value"] = g[col].mean().to_numpy()
+        pf["file"] = pf["uid"]
+        return pf
+
+    def _changes(self, files, change="pct"):
+        col, _ = self._metric()
+        exp, notes = GS.pair_changes(self._per_file(files, col), col, change=change, exclude_qc=False,
+                                     value_col="value")
+        if exp.empty:
+            raise ValueError("No sample has both a Before file and an After file (AMF or sham) among the ticked files.")
+        return GS.control_correct(exp), notes
+
     def plot_change(self, files):
         col, mlabel = self._metric()
-        per = self.store.per
         info = self.store.info
-        by_s = {}
-        for u in files:
-            by_s.setdefault(info[u]["sample"], []).append(u)
-        rows = []
-        for smp, us in by_s.items():
-            bef = [u for u in us if info[u]["condition"] != "After AMF"]
-            aft = [u for u in us if info[u]["condition"] == "After AMF"]
-            if not bef or not aft:
-                continue
-            b = np.mean([per.loc[per.uid == u, col].mean() for u in bef])
-            for u in aft:
-                v = per.loc[per.uid == u, col].mean()
-                rows.append((smp, u, 100 * (v - b) / b if b else np.nan, b, v))
-        if not rows:
-            raise ValueError("No sample has both a Before-AMF and an After-AMF file among the ticked files.")
-        groups = self.groups([u for _, u, *_ in rows]) if self.layout_.currentData() == "group" else [("", [u for _, u, *_ in rows])]
+        exp, _ = self._changes(files, "pct")
+        corr = self.sub_sham.isChecked()
+        if corr:
+            ctrl = exp["arm"].isin(GS.CONTROL_ARMS)
+            if not ctrl.any():
+                raise ValueError("No sham gel (‘sham’ in the file name) among the ticked files — untick "
+                                 "‘Subtract the change of the sham gels’ or tick sham files too.")
+            exp = exp[~ctrl & exp["y_corrected"].notna()]
+            if exp.empty:
+                raise ValueError("No AMF sample with a matching sham control among the ticked files.")
+        rows = [(r["sample"], r["file"], r["y_corrected"] if corr else r["y"], r["before"], r["after"],
+                 r.get("control_mean"), r.get("control_match"))
+                for _, r in exp.iterrows()]
+        us_all = [u for _, u, *_ in rows]
+        groups = self.groups(us_all) if self.layout_.currentData() == "group" else [("", us_all)]
         axs = self._axes(len(groups))
-        cols = self.colors([u for _, u, *_ in rows])
-        lookup = {u: (smp, ch, b, v) for smp, u, ch, b, v in rows}
+        cols = self.colors(us_all)
+        lookup = {u: (smp, ch, b, v, cm, cmatch) for smp, u, ch, b, v, cm, cmatch in rows}
         for a, (gname, us) in zip(axs, groups):
             xs = np.arange(len(us))
             vals = [lookup[u][1] for u in us]
@@ -857,14 +897,87 @@ class PlotsPage(Page):
                                xytext=(0, 2 if v >= 0 else -2), textcoords="offset points")
             for u in us:
                 a.bar([0], [0], width=0, color=cols[u], label=self.label(u))
-                smp, ch, b, v = lookup[u]
-                self.plotted.append(dict(panel=gname, sample=smp, after_file=u, before_mean=b, after_mean=v,
-                                         change_pct=ch))
+                smp, ch, b, v, cm, cmatch = lookup[u]
+                row = dict(panel=gname, sample=smp, after_file=u, arm=info[u].get("arm"), before_mean=b, after_mean=v,
+                           change_pct=ch)
+                if corr:
+                    row.update(change_pct_raw=ch + cm, sham_change_pct=cm, sham_match=cmatch)
+                    row["change_pct_minus_sham"] = row.pop("change_pct")
+                self.plotted.append(row)
             a.set_title(gname)
-        self._finish(axs, "sample (after-AMF file)", f"change of {mlabel.split(' (')[0].lower()} (%)",
-                     f"Change after AMF vs before: {mlabel}")
+        what = "minus the sham change" if corr else "after vs before"
+        self._finish(axs, "sample (after file)", f"change of {mlabel.split(' (')[0].lower()} (%)"
+                     + (" − sham" if corr else ""), f"Change {what}: {mlabel}")
         self.note.setText("Change = (after − before) / before × 100, using the mean over the analysed images of each "
-                          "file. With several before files in a sample their mean is used.")
+                          "file. With several before files in a sample their mean is used."
+                          + (" The mean % change of the sham gels of the same date (all dates if none) is subtracted."
+                             if corr else " Grey bars: sham gels (no field)."))
+
+    def plot_stats(self, files):
+        col, mlabel = self._metric()
+        change = self.style_.currentData() or "pct"
+        exp, notes = self._changes(files, change)
+        unit = "%" if change == "pct" else ""
+        info = self.store.info
+        ctrl = exp["arm"].isin(GS.CONTROL_ARMS)
+        key = self.group_by.currentData() if self.layout_.currentData() == "group" else None
+        if key in (None, "arm", "condition"):
+            panels = [("", exp)]
+        else:                                   # sham gels have no AMF settings: shown in every panel
+            vals = exp.loc[~ctrl, "file"].map(lambda u: info[u].get(key))
+            panels = []
+            for v in dict.fromkeys(vals):
+                sub = exp[(~ctrl & (vals.reindex(exp.index) == v)) | ctrl]
+                lab = f"Sample {v}" if key == "sample" else f"{dict(GROUP_BY).get(key, key.replace('_', ' '))}: {_fmt(v)}"
+                panels.append((lab, sub))
+        axs = self._axes(len(panels))
+        texts = []
+        rng = np.random.default_rng(0)
+        for a, (gname, sub) in zip(axs, panels):
+            gels = GS.per_gel(sub, "y")
+            arms = [arm for arm in GS.ARMS if (gels["arm"] == arm).any()]
+            if not arms:
+                continue
+            summ, comp = GS.arm_statistics(sub, "y")
+            for x, arm in enumerate(arms):
+                v = gels.loc[gels["arm"] == arm, "value"].to_numpy(float)
+                st = summ[summ["arm"] == arm].iloc[0]
+                c = GS.ARM_COLORS.get(arm, "#555")
+                a.bar(x, st["mean"], width=0.6, color=c, alpha=0.35, edgecolor=c)
+                if np.isfinite(st["ci95_low"]):
+                    a.errorbar(x, st["mean"], yerr=[[st["mean"] - st["ci95_low"]], [st["ci95_high"] - st["mean"]]],
+                               fmt="none", ecolor="#333", capsize=5, lw=1.2)
+                a.scatter(x + rng.uniform(-0.12, 0.12, v.size), v, s=30, color=c, edgecolor="white", zorder=3)
+                a.annotate(f"n = {int(st['n_gels'])}\n{GS.fmt_p(st['p_ttest_vs0'])}", (x, 1.0),
+                           xycoords=("data", "axes fraction"), ha="center", va="top", fontsize=8, color="#333")
+                gl = gels[gels["arm"] == arm]
+                for (_, gr), val in zip(gl.iterrows(), v):
+                    self.plotted.append(dict(panel=gname, row="gel", arm=arm, date=gr["date"], sample=gr["sample"],
+                                             n_files=gr["n_files"], value=val))
+                self.plotted.append(dict(panel=gname, row="summary", arm=arm,
+                                         **{k: st[k] for k in st.index if k not in ("arm",)}))
+            for _, cr in comp.iterrows():
+                head = f"{(gname + ': ') if gname else ''}{cr['group_a']} vs {cr['group_b']}: Δ {cr['difference']:+.3g}{unit}"
+                if np.isfinite(cr["p_welch"]):
+                    texts.append(f"{head} [{cr['diff_ci95_low']:+.3g}, {cr['diff_ci95_high']:+.3g}], "
+                                 f"Welch {GS.fmt_p(cr['p_welch'])} (Holm {GS.fmt_p(cr['p_welch_holm'])}), "
+                                 f"Mann–Whitney {GS.fmt_p(cr['p_mannwhitney'])}, g = {cr['hedges_g']:.2f}")
+                else:
+                    texts.append(f"{head} (needs ≥ 2 gels per group for a test)")
+                self.plotted.append(dict(panel=gname, row="comparison", **cr.to_dict()))
+            a.axhline(0, color="#333", lw=0.8)
+            a.set_xticks(range(len(arms)))
+            a.set_xticklabels([arm.replace(" (", "\n(") for arm in arms], fontsize=8.5)
+            lo, hi = a.get_ylim()
+            a.set_ylim(lo, hi + 0.22 * (hi - lo))
+            a.set_title(gname)
+        ylab = (f"{mlabel.split(' (')[0]}: change (%)" if change == "pct"
+                else f"Δ {mlabel} (after − before)")
+        self._finish(axs, "", ylab, f"{mlabel}: change by group (dots = gels, bars = mean ± 95 % CI)")
+        self.note.setText("Each dot is one gel (After files of a gel averaged). Above each bar: paired test of "
+                          "the change against 0 (t-test). " + (" | ".join(texts) if texts else
+                          "Tick sham gels too for the field-effect comparison (NC + AMF vs sham).")
+                          + (" " + "; ".join(notes) if notes else ""))
 
     def plot_param(self, files):
         col, mlabel = self._metric()

@@ -64,6 +64,7 @@ FIGURES = [  # key, label, group
     ("pore_dist", "Pore size distribution, one panel per sample", "Per date (side by side)"),
     ("fiber_dist", "Fiber size distribution, one panel per sample", "Per date (side by side)"),
     ("length_dist", "Fiber length distribution, one panel per sample", "Per date (side by side)"),
+    ("change_map", "Registered before/after and local change maps (change_map_mmddyy_##)", "Per sample"),
 ]
 
 
@@ -72,12 +73,13 @@ def parse_file_name(path, after_pattern="AMF"):
     name = os.path.splitext(os.path.basename(path))[0]
     m = re.match(r"^(\d{6})_(\d+)_", name)
     date, sample = (m.group(1), f"{m.group(1)}_{m.group(2)}") if m else ("other", name)
+    sham = core.parse_sham(name)
     try:
-        after = bool(re.search(after_pattern, core.name_core(name), re.I))
+        after = not sham and bool(re.search(after_pattern, core.name_core(name), re.I))
     except re.error:
         after = False
     d = dict(name=name, date=date, sample=sample, named=bool(m),
-             condition="After AMF" if after else "Before AMF")
+             condition="After sham" if sham else "After AMF" if after else "Before AMF")
     hz, sec = core.parse_amf(name) if after else (None, None)
     vpp, vm = core.parse_amf_voltage(name) if after else (None, None)
     d.update(core.parse_amf_coil(name) if after else dict(amf_app=None, coil_turns=None, amf_b=None, amf_b_type=None))
@@ -163,7 +165,7 @@ def quote(a):
 # ---------------------------------------------------------------------------- editable sample information
 # key, column title, unit, type, choices, engine key, factor (table value × factor = engine value)
 STD_FIELDS = [
-    ("condition", "Condition", "", "choice", ["Before AMF", "After AMF"], "condition", None),
+    ("condition", "Condition", "", "choice", ["Before AMF", "After AMF", "After sham"], "condition", None),
     ("amf_hz", "AMF freq.", "Hz", "num", None, "amf_hz", 1.0),
     ("amf_min", "AMF time", "min", "num", None, "amf_s", 60.0),
     ("amf_vpp", "Vp-p set", "V", "num", None, "amf_vpp", 1.0),
@@ -179,7 +181,7 @@ STD_FIELDS = [
     ("other", "Note", "", "text", None, "other", None),
 ]
 FIELD_TIPS = {
-    "condition": "Before AMF / After AMF (from ‘AMF’ in the name)",
+    "condition": "Before AMF / After AMF (from ‘AMF’ in the name) / After sham (from ‘sham’: same handling, no field)",
     "amf_hz": "AMF frequency (name: 500Hz, 1kHz)", "amf_min": "AMF exposure time in minutes (name: 3min, 90s)",
     "amf_vpp": "Vp-p set on the instrument (name: 10Vpp)", "amf_v": "Measured AMF voltage (name: 8.5V)",
     "amf_app": "Current Ap-p set on the power supply, not the measured current (name: 2App)",
@@ -187,7 +189,7 @@ FIELD_TIPS = {
     "amf_b": "Measured magnetic field in mT (name: 40mTpk, 28mTrms; also µT/T)",
     "amf_b_type": "How the field was measured: peak, rms or peak-to-peak (name: …mTpk / …mTrms / …mTpp)",
     "collagen_mgml": "Collagen concentration (name: Collagen_3mgml)",
-    "nc_nM": "Theoretical local nanocage concentration in nM (name: NC_0.5nM)",
+    "nc_nM": "Theoretical local nanocage concentration in nM (name: NC_0.5nM; noNC or NC_0nM = gel without NCs)",
     "mixing": "premixed / incubated (name: premixed, inc45min)", "inc_min": "NC incubation time in minutes (name: inc45min)",
     "other": "Free note (name: other-text)",
 }

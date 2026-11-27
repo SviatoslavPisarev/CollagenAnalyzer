@@ -1,7 +1,8 @@
 """Experiment planner: Gaussian-process model of the AMF response + Bayesian optimisation.
 
 Each experiment is one After-AMF file paired with the Before-AMF file(s) of the same sample (same
-mmddyy_##_ and results folder); its response is the change of one metric (after - before, or %).
+mmddyy_##_ and results folder); its response is the change of one metric (after - before, or %),
+by default minus the change of the matching sham gels (see build_experiments and gelstats.py).
 The inputs are the experiment's settings (AMF frequency, time, voltage, NC concentration, ...).
 
 A Gaussian process (Matérn 5/2 kernel, one length scale per input, plus a noise term) is fitted
@@ -44,46 +45,42 @@ def _value(key, s):
     return pd.to_numeric(s, errors="coerce") * f
 
 
-def build_experiments(pf, metric, change="diff", exclude_qc=True):
-    """Pair After-AMF files with their sample's Before-AMF files.
+def build_experiments(pf, metric, change="diff", exclude_qc=True, controls="subtract"):
+    """Pair After-AMF files with their sample's Before-AMF files (gelstats.pair_changes).
     pf: per-file rows (one or several workbooks); metric: column name without _mean.
+    Sham gels (_sham_) are controls, never experiments. controls='subtract': the response is the change
+    minus the mean change of the matching sham gels (same date, else all; gelstats.control_correct),
+    so drift from drying and re-imaging is not modelled as an AMF effect; experiments without a matching
+    sham are left out. controls='none': the raw change. Without any sham in the data the raw change is
+    used and a note says so.
     Returns (experiments DataFrame, list of notes)."""
-    col = metric + "_mean"
-    notes = []
-    if col not in pf:
-        return pd.DataFrame(), [f"metric {metric} not in the spreadsheets"]
-    pf = pf.copy()
-    src = pf["_src"] if "_src" in pf else pd.Series("", index=pf.index)
-    pf["_key"] = pf["date"].astype(str) + "|" + pf["sample"].astype(str) + "|" + src.astype(str)
-    flagged = pf.get("qc_status", pd.Series("", index=pf.index)).astype(str).eq("check")
-    rows, n_qc, n_nobefore = [], 0, 0
-    for _, g in pf.groupby("_key", sort=False):
-        before = g[g["condition"].astype(str).eq("Before AMF")]
-        after = g[g["condition"].astype(str).str.startswith("After")]
-        if exclude_qc:
-            n_qc += int(flagged[before.index].sum() + flagged[after.index].sum())
-            before, after = before[~flagged[before.index]], after[~flagged[after.index]]
-        if after.empty:
-            continue
-        b = pd.to_numeric(before[col], errors="coerce").dropna()
-        if b.empty:
-            n_nobefore += len(after)
-            continue
-        b0 = float(b.mean())
-        for i, r in after.iterrows():
-            a = pd.to_numeric(pd.Series([r[col]]), errors="coerce").iloc[0]
-            if not np.isfinite(a):
-                continue
-            y = a - b0 if change == "diff" else (100 * (a - b0) / b0 if b0 else np.nan)
-            row = dict(file=r["file"], sample=r["sample"], date=r["date"], before=b0, after=float(a), y=y)
-            for key in VAR:
-                c = VAR[key][1]
-                row[key] = float(_value(key, pd.Series([r.get(c)])).iloc[0]) if c in r else np.nan
-            rows.append(row)
-    if n_qc:
-        notes.append(f"{n_qc} file(s) left out because the quality check marked them ‘check’")
-    if n_nobefore:
-        notes.append(f"{n_nobefore} After-AMF file(s) without a Before-AMF file of the same sample left out")
+    import gelstats as GS
+    exp, notes = GS.pair_changes(pf, metric, change=change, exclude_qc=exclude_qc)
+    if exp.empty:
+        return pd.DataFrame(), notes
+    n_sham = int(exp["arm"].isin(GS.CONTROL_ARMS).sum())
+    if controls == "subtract":
+        if n_sham:
+            exp = GS.control_correct(exp)
+            treated = ~exp["arm"].isin(GS.CONTROL_ARMS)
+            miss = treated & exp["y_corrected"].isna()
+            if miss.any():
+                notes.append(f"{int(miss.sum())} experiment(s) without a matching sham control left out")
+            exp["y_raw"] = exp["y"]
+            exp["y"] = exp["y_corrected"]
+            exp = exp[treated & ~miss]
+            notes.append(f"response = change minus the sham change ({n_sham} sham gel file(s))")
+        else:
+            notes.append("no sham controls in the data: the response is the raw change (drift not removed)")
+    exp = exp[~exp["arm"].isin(GS.CONTROL_ARMS)]
+    rows = []
+    for _, r in exp.iterrows():
+        row = dict(file=r["file"], sample=r["sample"], date=r["date"], arm=r["arm"], before=r["before"],
+                   after=r["after"], y=r["y"])
+        for key in VAR:
+            c = VAR[key][1]
+            row[key] = float(_value(key, pd.Series([r.get(c)])).iloc[0]) if c in r else np.nan
+        rows.append(row)
     return pd.DataFrame(rows), notes
 
 

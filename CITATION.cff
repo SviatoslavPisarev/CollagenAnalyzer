@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "Collagen Reflectance Analyzer"
+abstract: >-
+  Desktop app for measuring the structure of collagen hydrogels in confocal reflectance images
+  (fiber density, pore size, fiber thickness and length, alignment, patchiness), comparing gels
+  before and after alternating-magnetic-field treatment with sham controls, gel-level statistics,
+  registered local change maps, quality checks and Bayesian experiment planning.
+type: software
+authors:
+  - family-names: Pisarev
+    given-names: Sviatoslav
+    affiliation: "Department of Chemistry, Hunter College, City University of New York (Matsui Lab)"
+repository-code: "https://github.com/SviatoslavPisarev/CollagenAnalyzer"
+keywords:
+  - collagen
+  - confocal reflectance microscopy
+  - extracellular matrix
+  - fiber alignment
+  - magnetic nanoparticles
+  - image analysis
