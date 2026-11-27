@@ -181,6 +181,7 @@ class FigurePanel(QWidget):
         self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.nav = NavBar(self.canvas, self.inner)
         self.nav.setToolTip("Zoom and pan; Home goes back to the full view")
+        self.nav.setMinimumWidth(200)                 # keep the five tool buttons visible
         if controls:                              # the figure's own choices on a row of their own
             crow = QHBoxLayout()
             crow.setContentsMargins(0, 0, 0, 0)
@@ -290,25 +291,54 @@ class FigurePanel(QWidget):
             return
         if self._empty():
             return
-        from PySide6.QtWidgets import QDialog
-        w = QDialog(self.window())
-        w.setObjectName("page")
-        w.setWindowTitle(self._name())
-        l = QVBoxLayout(w)
-        l.setContentsMargins(18, 14, 18, 14)
-        l.addWidget(self.inner)                    # the figure, its controls and buttons move into the window
-        self.full_win = w
+        self.full_win = full_screen(self.inner, self._name(), on_exit=self._restored,
+                                    keys=(("Ctrl+S", self.save), ("Ctrl+Shift+C", self.copy),
+                                          ("Ctrl+F", self.toggle_full)))
         self.full_btn.setText("Exit full screen")
         self._icons()
-        w.finished.connect(self._restore)
-        w.showFullScreen()
 
-    def _restore(self, *_):
-        w, self.full_win = self.full_win, None
-        self.layout().addWidget(self.inner)
-        self.inner.show()
+    def _restored(self):
+        self.full_win = None
         self.full_btn.setText("Full screen")
         self._icons()
-        if w is not None:
-            w.deleteLater()
         self.canvas.draw_idle()
+
+
+def full_screen(widget, title, on_exit=None, keys=()):
+    """Show widget alone on the whole screen; Esc (or closing) puts it back where it was. keys: (shortcut, slot)
+    pairs that work in the full-screen window. Returns the window."""
+    from PySide6.QtGui import QKeySequence, QShortcut
+    from PySide6.QtWidgets import QDialog, QSplitter
+    parent = widget.parentWidget()
+    if isinstance(parent, QSplitter):
+        idx, sizes = parent.indexOf(widget), parent.sizes()
+
+        def put_back():
+            parent.insertWidget(idx, widget)
+            parent.setSizes(sizes)
+    else:
+        lay = parent.layout()
+        idx = lay.indexOf(widget)
+        stretch = lay.stretch(idx) if hasattr(lay, "stretch") else 0
+
+        def put_back():
+            lay.insertWidget(idx, widget, stretch)
+    w = QDialog(widget.window())
+    w.setObjectName("page")
+    w.setWindowTitle(title)
+    l = QVBoxLayout(w)
+    l.setContentsMargins(18, 14, 18, 14)
+    l.addWidget(widget)
+    widget.show()
+    for key, slot in keys:
+        QShortcut(QKeySequence(key), w, slot)
+
+    def done(*_):
+        put_back()
+        widget.show()
+        if on_exit:
+            on_exit()
+        w.deleteLater()
+    w.finished.connect(done)
+    w.showFullScreen()
+    return w

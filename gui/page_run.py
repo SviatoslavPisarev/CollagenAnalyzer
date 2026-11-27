@@ -6,7 +6,7 @@ import sys
 import tempfile
 import time
 
-from PySide6.QtCore import Qt, Signal, QThread, QTimer
+from PySide6.QtCore import Qt, Signal, QThread, QTimer, QSettings
 from PySide6.QtGui import QTextCharFormat, QColor, QFont, QGuiApplication
 from PySide6.QtWidgets import (QCheckBox, QGridLayout, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
                                QMessageBox, QPlainTextEdit, QProgressBar, QVBoxLayout, QWidget, QTextEdit)
@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (QCheckBox, QGridLayout, QHBoxLayout, QLabel, QLis
 from .common import engine_command, open_path, quote
 from .widgets import Page, Card, StepChip, button, hint, banner, hbox
 from . import style
+from . import ease
+from .errors import explain, as_html
 
 
 class EngineProcess(QThread):
@@ -90,6 +92,7 @@ PHASES = [("1/3", "Reading files"), ("2/3", "Analysing images"), ("3/3", "Figure
 
 class RunPage(Page):
     run_finished = Signal(list)          # list of (kind, path)
+    run_ended = Signal(int, str)         # exit code (0 ok, -2 stopped), one-line summary
 
     def __init__(self, data_page, params_page, outputs_page, parent=None):
         super().__init__("Run", "Check the summary and start. The analysis runs in the background; you can "
@@ -155,14 +158,21 @@ class RunPage(Page):
         self.log.setMinimumHeight(220)
         self.details = QCheckBox("Show details in the log (per-file metadata, thresholds)")
         self.details.setChecked(True)
+        self.notify_cb = QCheckBox("Sound and notification when it finishes")
+        self.notify_cb.setChecked(True)
+        self.notify_cb.setToolTip("So you can work in other programs during a long run")
+        self.notify_cb.toggled.connect(lambda on: QSettings().setValue("run/notify", "true" if on else "false"))
         prog.lay.addWidget(self.log, 1)
-        prog.lay.addWidget(hbox(self.details, button("Save log…", "link", slot=self.save_log),
+        prog.lay.addWidget(hbox(self.details, self.notify_cb, button("Save log…", "link", slot=self.save_log),
                                 button("Clear log", "link", slot=self.log.clear)))
+        ease.remember("run", dict(details=self.details))
+        self.notify_cb.setChecked(QSettings().value("run/notify", "true") not in (False, "false"))
         self.lay.addWidget(prog, 1)
 
         # --- results
         res = Card("Results")
         self.res_banner = banner("", ok=True)
+        self.res_banner.setTextFormat(Qt.RichText)
         self.res_banner.hide()
         res.lay.addWidget(self.res_banner)
         self.res_list = QListWidget()
@@ -362,18 +372,25 @@ class RunPage(Page):
                 c.set_state("done")
             self.bar.setValue(1000)
             self.res_banner.setObjectName("bannerOk")
-            self.res_banner.setText(f"Finished in {self.elapsed_label.text().replace('elapsed ', '')} (min:s) — "
-                                    f"{nfig} figure(s) and the spreadsheets were saved.")
+            took = self.elapsed_label.text().replace('elapsed ', '')
+            summary = f"Finished in {took} (min:s) — {nfig} figure(s) and the spreadsheets were saved."
+            notes = explain(self.log.toPlainText())
+            self.res_banner.setText(summary + (("<br><b>Worth checking:</b>" + as_html(notes)) if notes else ""))
             self._append("Finished.", "#a5d6a7")
         elif code == -2:
             self.res_banner.setObjectName("banner")
-            self.res_banner.setText("Stopped. Files written before stopping are kept.")
+            summary = "Stopped. Files written before stopping are kept."
+            self.res_banner.setText(summary)
         else:
             self.res_banner.setObjectName("banner")
-            self.res_banner.setText("The analysis stopped with an error — see the last lines of the log. Common "
-                                    "causes: a file that cannot be read, a TIFF without pixel size, or no memory "
-                                    "(lower ‘Parallel workers’).")
             self._append(f"Stopped with error code {code}.", "#ff8a80")
+            notes = explain(self.log.toPlainText())
+            summary = "The analysis stopped with an error."
+            self.res_banner.setText(
+                f"<b>{summary}</b>" + (as_html(notes) if notes else
+                                       " See the last lines of the log. Common causes: a file that cannot be read, a "
+                                       "TIFF without pixel size, or too little memory (lower ‘Parallel workers’ in "
+                                       "the Settings step)."))
         self.res_banner.style().unpolish(self.res_banner)
         self.res_banner.style().polish(self.res_banner)
         self.res_banner.show()
@@ -384,6 +401,7 @@ class RunPage(Page):
         self.refresh_summary()
         if code == 0:
             self.run_finished.emit(list(self.outputs_found))
+        self.run_ended.emit(code, summary)
         try:
             os.remove(self._list_file)
         except OSError:

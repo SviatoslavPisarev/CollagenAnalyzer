@@ -21,8 +21,12 @@ from ml import correlate as CR
 from ml import patterns as PT
 from .widgets import Page, button, hint, banner, hbox
 from .widgets import FigurePanel
+from . import ease
+from .errors import friendly
 from . import style
 
+NOTHING = ("Nothing loaded. The tile table (mmddyy_tiles.csv) of each run is added automatically; or drop tile "
+           "tables or a results folder here.")
 COLORS = ["#3b6fb6", "#d9622b", "#2a9d5c", "#8e44ad", "#c0392b", "#e0a800", "#17a2b8", "#6d4c41", "#ad1457",
           "#7f8c8d"]
 
@@ -55,7 +59,7 @@ class PatternsPage(Page):
         gl.addWidget(hbox(button("Load tile tables…", "primary", slot=self.load_dialog),
                           button("Load results folder…", slot=self.load_folder_dialog),
                           button("Clear", "link", slot=self.clear)))
-        self.src_label = hint("Nothing loaded. The tile table (mmddyy_tiles.csv) of each run is added automatically.")
+        self.src_label = hint(NOTHING)
         gl.addWidget(self.src_label)
         self.excl_tiles = QCheckBox("Leave out tiles flagged dark or blurred")
         self.excl_qc = QCheckBox("Leave out files the quality check marked ‘check’")
@@ -113,8 +117,8 @@ class PatternsPage(Page):
         self.corr_hide.setChecked(True)
         self.corr_hide.setToolTip("e.g. fiber density ↔ pore size, alignment S ↔ coherency: these move together "
                                   "by construction, so they would always top the list.")
-        self.corr_level.currentIndexChanged.connect(lambda *_: self.find_correlations(show=True))
-        self.corr_hide.toggled.connect(lambda *_: self.find_correlations(show=True))
+        self.corr_level.currentIndexChanged.connect(lambda *_: self.find_correlations(show=bool(len(self.tiles))))
+        self.corr_hide.toggled.connect(lambda *_: self.find_correlations(show=bool(len(self.tiles))))
         f.addRow("Look at", self.corr_level)
         f.addRow(self.corr_hide)
         f.addRow(button("Find strongest correlations", "primary", slot=lambda: self.find_correlations(show=True),
@@ -231,6 +235,10 @@ class PatternsPage(Page):
         split.setStretchFactor(0, 0)
         split.setStretchFactor(1, 1)
         split.setSizes([500, 820])
+        ease.remember("patterns", dict(features=self.feat_list, log_sizes=self.log_sizes, method=self.method,
+                                       k=self.k, excl_tiles=self.excl_tiles, excl_qc=self.excl_qc,
+                                       corr_level=self.corr_level, corr_hide=self.corr_hide,
+                                       view=self.emb_method, colour=self.emb_color, pair=self.map_pair))
 
     # ------------------------------------------------------------------ data
     def load_dialog(self):
@@ -257,7 +265,7 @@ class PatternsPage(Page):
         try:
             t = PT.load_tiles(new)
         except Exception as e:
-            QMessageBox.warning(self, "Patterns", f"Could not read the tile table(s):\n{e}")
+            QMessageBox.warning(self, "Patterns", friendly(e, "Could not read the tile table(s)."))
             return
         self.sources += new
         self.tiles = PT.load_tiles(self.sources) if len(self.tiles) else t
@@ -275,8 +283,7 @@ class PatternsPage(Page):
 
     def _summary(self):
         if not len(self.tiles):
-            self.src_label.setText("Nothing loaded. The tile table (mmddyy_tiles.csv) of each run is added "
-                                   "automatically.")
+            self.src_label.setText(NOTHING)
             return
         t = self.tiles
         self.src_label.setText(f"{len(t)} tiles from {t['file'].nunique()} file(s), {t['sample'].nunique()} "

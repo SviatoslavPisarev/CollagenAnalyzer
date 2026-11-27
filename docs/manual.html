@@ -59,7 +59,8 @@ AMF treatment, across samples and across experiments, and makes publication-read
 <a href="#changemap">19. Registration and local change maps</a><br>
 <a href="#physics">20. Nanocage physics (estimate)</a><br>
 <a href="#tests">21. Tests, validation and citing the app</a><br>
-<a href="#look">22. Day and night look</a></p>
+<a href="#look">22. Day and night look</a><br>
+<a href="#ease">23. Time savers: recent analyses, drag and drop, shortcuts</a></p>
 </div>
 
 <h2 id="install"><a name="install"></a>1. Installing and starting the app</h2>
@@ -120,7 +121,8 @@ red fiber mask follows the fibers. For a first, fast look set <i>Analyse every N
 <li><b>Run</b> — click <b>Start analysis</b>. Progress and messages appear live.</li>
 <li>When it finishes: <b>Open results folder</b>, or <b>Make custom plots</b> to build your own comparison graphs.</li>
 </ol>
-<p>The app remembers all settings and the last folders between sessions.</p>
+<p>The app remembers all settings, the choices on every page and the last folders between sessions. Earlier results are one
+click away under <b>Recent analyses</b> (section 23).</p>
 
 <h2 id="names" class="newpage"><a name="names"></a>3. Naming your files</h2>
 <p>The app reads the experimental conditions from the file names. Parts are separated by underscores and can be in any order
@@ -422,7 +424,7 @@ variation with depth, not uncertainty of the sample mean. Use several gels/field
 <tr><td>“TIFF files have no pixel size”</td><td>Parameters → File names and TIFF calibration → tick Pixel size and enter it (µm).</td></tr>
 <tr><td>Fiber mask misses fibers / fills background</td><td>Preview → move the threshold → Use as fixed threshold. For thick bundles add ridge scales 0.3, 0.4.</td></tr>
 <tr><td>Yellow hotspot circle is wrong</td><td>Parameters → Manual circle (x, y, r in pixels) or No hotspot.</td></tr>
-<tr><td>Run stops with an error / computer becomes slow</td><td>Lower Parallel workers (e.g. 2). Read the last lines of the log; Save log… and send it with the file name if you need help.</td></tr>
+<tr><td>Run stops with an error / computer becomes slow</td><td>The Results box under the log says what went wrong and what to do for the common causes. Otherwise lower Parallel workers (e.g. 2) and read the last lines of the log; Save log… and send it with the file name if you need help.</td></tr>
 <tr><td>Distribution graphs say “no distribution data”</td><td>The spreadsheet comes from an older version of the script; run the analysis again with the app.</td></tr>
 <tr><td>A value from the file name is wrong or missing</td><td>Files step: double-click the cell and type the value (Section 4).</td></tr>
 <tr><td>A sample is not compared before vs after</td><td>Both file names must start with the same <code>mmddyy_##_</code> and only the after file may contain “AMF”.</td></tr>
@@ -632,5 +634,35 @@ for method validation in a paper. Run them yourself with <code>pip install pytes
 <p><b>Night mode</b> at the bottom of the sidebar switches the whole app to a dark look; <b>Day mode</b> switches back. The choice is
 remembered. Graphs on screen follow the look, but <b>Save figure…</b> always saves them on a white background with dark text, ready
 for papers and slides. The figures a run writes are not affected.</p>
+
+<h2 id="ease" class="newpage"><a name="ease"></a>23. Time savers: recent analyses, drag and drop, shortcuts</h2>
+<p><b>Recent analyses.</b> Every finished run, and every results folder you load, is remembered. While no images are chosen, the
+Files step lists the last five: <b>Open results</b> loads them into Results &amp; plots, Patterns and the Experiment planner at
+once. Results &amp; plots has the same list under <b>Recent</b>. <i>Forget</i> removes an entry (the files stay); results that
+were moved or deleted are offered for removal.</p>
+<p><b>Drag and drop.</b> Drop a results folder (or result spreadsheets / tile tables) onto Results &amp; plots, Patterns or the
+Experiment planner to load it — folders are searched with their subfolders, so the data folder that holds the results folder
+works too. Images dropped there start a new analysis. On the Files step, drop image files or folders as before.</p>
+<p><b>When a run finishes</b> the app plays a sound; if you are working in another program it also bounces in the Dock (Mac) or
+flashes in the taskbar (Windows) and shows a notification. Untick <i>Sound and notification when it finishes</i> under the log to
+turn this off. If the run stops with an error, the Results box says what went wrong and what to do for the common causes (no
+pixel size, not enough memory, files only in iCloud, no permission, a file still copying, …); after a successful run it lists
+warnings worth checking.</p>
+<p><b>Keyboard shortcuts</b> (⌘ on a Mac, Ctrl on Windows; <b>Help → Keyboard shortcuts</b> or ⌘/ shows them in the app):</p>
+<table>
+<tr><th>Keys</th><th>What it does</th></tr>
+<tr><td>⌘1 … ⌘6, F1</td><td>New analysis, Results &amp; plots, Patterns, Experiment planner, Quality check, Fiber model; Help</td></tr>
+<tr><td>⌘O</td><td>Choose images, or load results on a results page</td></tr>
+<tr><td>⌘R</td><td>Start the analysis</td></tr>
+<tr><td>⌘S / ⌘⇧C</td><td>Save / copy the graph you are looking at</td></tr>
+<tr><td>⌘F</td><td>Graph full screen (Esc to go back); on the Files step: find a file</td></tr>
+<tr><td>⌘⇧D</td><td>Night / day mode</td></tr>
+</table>
+<p><b>New versions.</b> When a new version is published, a green bar at the top of the window says so, with a <b>Download</b>
+button (your settings are kept when you install it). The app asks GitHub at most once a day and sends nothing about you or your
+data; untick <i>Tell me when a new version is out</i> at the bottom of the Help page to stop it, or click <i>Check now</i>.</p>
+<p><b>Remembered choices.</b> Besides the settings of a new analysis, the app remembers the graph choices on Results &amp; plots,
+the goal, ranges and physics inputs of the Experiment planner (ranges you typed are kept and only widened to cover new data;
+<i>Ranges from the data</i> resets them) and the metrics, method and k on the Patterns page.</p>
 </body>
 </html>

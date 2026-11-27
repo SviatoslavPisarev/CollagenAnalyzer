@@ -1,16 +1,15 @@
 """Results & Plots: load result spreadsheets and build custom graphs from any files."""
 import glob
 import os
-import re
 
 import numpy as np
 import pandas as pd
-from PySide6.QtCore import Qt, QTimer, QSettings
-from PySide6.QtGui import QColor, QIcon, QPixmap
+from PySide6.QtCore import Qt, QTimer, QSettings, Signal
+from PySide6.QtGui import QColor, QIcon, QPixmap, QGuiApplication, QImage
 from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QFrame,
                                QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
                                QScrollArea, QSpinBox, QSplitter, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
-                               QHeaderView, QSizePolicy)
+                               QHeaderView, QSizePolicy, QMenu)
 
 import matplotlib
 matplotlib.use("QtAgg")
@@ -23,7 +22,9 @@ import gelstats as GS
 from .plot_style import (StylePanel, DragLabels, rc, cond_colors, fit_line, PALETTES, NUMERIC_CMAP, FIG_SIZES,
                          register_app_font)
 from .widgets import Page, button, hint, hbox
-from .widgets import ThemedCanvas
+from .widgets import ThemedCanvas, full_screen
+from . import ease
+from .errors import friendly
 from . import style
 
 METRICS = [
@@ -173,6 +174,8 @@ class ResultsStore:
 
 
 class PlotsPage(Page):
+    open_recent = Signal(dict)            # a recent analysis chosen in the Recent menu
+
     def __init__(self, parent=None):
         super().__init__("Results & plots", "Load result spreadsheets (mmddyy_summary.xlsx or summary.xlsx) and "
                          "combine any files in your own graphs. Results of a run are loaded automatically.",
@@ -191,10 +194,14 @@ class PlotsPage(Page):
 
         g = QGroupBox("1. Data")
         gl = QVBoxLayout(g)
+        self.recent_btn = button("Recent", tip="Results you analysed or opened before")
+        self.recent_menu = QMenu(self.recent_btn)
+        self.recent_menu.aboutToShow.connect(self._fill_recent)
+        self.recent_btn.setMenu(self.recent_menu)
         gl.addWidget(hbox(button("Load spreadsheet(s)…", "primary", slot=self.load_dialog),
                           button("Load results folder…", slot=self.load_folder_dialog),
-                          button("Clear", "link", slot=self.clear)))
-        self.src_label = hint("Nothing loaded.")
+                          self.recent_btn, button("Clear", "link", slot=self.clear)))
+        self.src_label = hint("Nothing loaded. Drop result spreadsheets or a results folder here, or use Recent.")
         gl.addWidget(self.src_label)
         cl.addWidget(g)
 
@@ -354,7 +361,19 @@ class PlotsPage(Page):
         self.canvas = ThemedCanvas(self.fig)
         self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.toolbar = NavigationToolbar2QT(self.canvas, right)
-        rl.addWidget(self.toolbar)
+        self.copy_btn = button("Copy", tip="Copy the figure to the clipboard (white background) — Ctrl/⌘+Shift+C",
+                               slot=self.copy_figure)
+        self.full_btn = button("Full screen", tip="Show the graph on the whole screen (Esc to go back) — Ctrl/⌘+F",
+                               slot=self.toggle_full)
+        self.full_win = None
+        tbrow = QHBoxLayout()
+        tbrow.setContentsMargins(0, 0, 0, 0)
+        tbrow.addWidget(self.toolbar, 1)
+        tbrow.addWidget(self.copy_btn)
+        tbrow.addWidget(button("Save…", tip="Save the figure (size and resolution: section 6) — Ctrl/⌘+S",
+                               slot=self.save_figure))
+        tbrow.addWidget(self.full_btn)
+        rl.addLayout(tbrow)
         rl.addWidget(self.canvas, 1)
         self._right_lay = rl
         self.cards = QWidget()
@@ -367,6 +386,7 @@ class PlotsPage(Page):
         rl.addWidget(self.note)
         split.addWidget(right)
         split.setSizes([480, 880])
+        self.right = right
 
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
@@ -389,6 +409,13 @@ class PlotsPage(Page):
         self._size_preset()
         self._fill_metric()
         self._controls_changed()
+        ease.remember("plots", dict(ptype=self.ptype, metric=self.metric_cb, dist=self.dist, err=self.err,
+                                    smooth=self.smooth, logx=self.logx, sub_sham=self.sub_sham,
+                                    layout=self.layout_, group_by=self.group_by, ncols=self.ncols,
+                                    share_y=self.share_y, color_by=self.color_by, label_by=self.label_by,
+                                    size=self.size_preset, dpi=self.dpi))
+        style.on_theme_change(self._btn_icons)
+        self._btn_icons()
 
     # ------------------------------------------------------------------ loading
     def load_dialog(self):
@@ -398,6 +425,7 @@ class PlotsPage(Page):
         if paths:
             QSettings().setValue("plots/last_dir", os.path.dirname(paths[0]))
             self.load_paths(paths)
+            ease.add_recent(paths)
 
     def load_folder_dialog(self):
         start = QSettings().value("plots/last_dir", os.path.expanduser("~"))
@@ -405,16 +433,12 @@ class PlotsPage(Page):
         if not d:
             return
         QSettings().setValue("plots/last_dir", d)
-        found = [p for p in glob.glob(os.path.join(d, "**", "*.xlsx"), recursive=True)
-                 if re.match(r"^((\d{6}|other)(-\d{6})?_summary|summary)\.xlsx$", os.path.basename(p))]
-        combined = [p for p in found if os.path.basename(p) == "summary.xlsx"]
-        if combined:            # a combined summary already holds its folders' data
-            found = combined + [p for p in found if os.path.basename(p) != "summary.xlsx"
-                                and not any(os.path.dirname(p).startswith(os.path.dirname(c)) for c in combined)]
+        found = ease.find_results([d])[0]
         if not found:
             QMessageBox.information(self, "Load results", "No mmddyy_summary.xlsx or summary.xlsx found in this folder.")
             return
         self.load_paths(found)
+        ease.add_recent(found)
 
     def load_paths(self, paths):
         errs = []
@@ -424,7 +448,7 @@ class PlotsPage(Page):
             except Exception as e:
                 errs.append(f"{os.path.basename(p)}: {e}")
         if errs:
-            QMessageBox.warning(self, "Load results", "Could not read:\n" + "\n".join(errs))
+            QMessageBox.warning(self, "Load results", friendly("\n".join(errs), "Could not read:"))
         self._after_load()
 
     def clear(self):
@@ -1388,6 +1412,60 @@ class PlotsPage(Page):
                            "fib": "Fiber size is shown cumulative (values come in pixel steps).",
                            "seg": "Each fiber segment counts once.",
                            "ang": "Radius = fraction of fiber pixels; S = order parameter (0 random, 1 aligned)."}[which])
+
+    # ------------------------------------------------------------------ recent / full screen / copy
+    def _fill_recent(self):
+        m = self.recent_menu
+        m.clear()
+        lst = ease.recent_list()
+        for e in lst:
+            title, detail = ease.describe(e)
+            a = m.addAction(f"{title}    —    {detail}")
+            a.setToolTip(e.get("folder", ""))
+            a.triggered.connect(lambda _=False, e=e: self.open_recent.emit(e))
+        if not lst:
+            a = m.addAction("No recent analyses yet")
+            a.setEnabled(False)
+        else:
+            m.addSeparator()
+            m.addAction("Clear this list", lambda: [ease.forget_recent(e["folder"]) for e in ease.recent_list()])
+
+    def _btn_icons(self):
+        self.copy_btn.setIcon(style.icon("copy", style.TEXT, 16))
+        self.full_btn.setIcon(style.icon("shrink" if self.full_win else "expand", style.TEXT, 16))
+
+    def toggle_full(self):
+        if self.full_win is not None:
+            self.full_win.close()
+            return
+        if not self.plotted and not self.fig.axes:
+            self.note.setText("Nothing plotted yet.")
+            return
+
+        def back():
+            self.full_win = None
+            self.full_btn.setText("Full screen")
+            self._btn_icons()
+            self.canvas.draw_idle()
+        self.full_win = full_screen(self.right, "Collagen Analyzer — graph", on_exit=back,
+                                    keys=(("Ctrl+S", self.save_figure), ("Ctrl+Shift+C", self.copy_figure),
+                                          ("Ctrl+F", self.toggle_full)))
+        self.full_btn.setText("Exit full screen")
+        self._btn_icons()
+
+    def copy_figure(self):
+        if not self.fig.axes:
+            self.note.setText("Nothing plotted yet.")
+            return
+        import io
+        buf = io.BytesIO()
+        try:
+            style.theme_figure(self.fig, night=False)
+            self.fig.savefig(buf, format="png", dpi=200, bbox_inches="tight", facecolor="white")
+        finally:
+            self.canvas.draw_idle()
+        QGuiApplication.clipboard().setImage(QImage.fromData(buf.getvalue(), "PNG"))
+        self.note.setText("Figure copied to the clipboard.")
 
     # ------------------------------------------------------------------ export
     def save_figure(self):

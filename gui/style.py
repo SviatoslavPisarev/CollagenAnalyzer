@@ -154,6 +154,8 @@ QLabel#cardSub { font-size: 11px; background: transparent; }
 QLabel#cardTitle { font-weight: 700; font-size: 14px; }
 QLabel#banner { background: $WARN_BG; border: 1px solid $WARN_BORDER; border-radius: 8px; padding: 8px 10px; color: $WARN; }
 QLabel#bannerOk { background: $OK_BG; border: 1px solid $OK_BORDER; border-radius: 8px; padding: 8px 10px; color: $OK; }
+QFrame#updateBar { background: $OK_BG; border-bottom: 1px solid $OK_BORDER; }
+QFrame#updateBar QLabel { color: $OK; background: transparent; }
 QLabel#bigNumber { font-size: 24px; font-weight: 700; color: $TEXT; }
 QLabel#groupHead { font-weight: 700; color: $ACCENT_TEXT; }
 

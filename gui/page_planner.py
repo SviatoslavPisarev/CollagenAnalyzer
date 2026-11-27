@@ -1,5 +1,6 @@
 """Experiment Planner: model how the AMF/NC settings change a metric and suggest the next experiments."""
 import glob
+import json
 import os
 import re
 
@@ -21,6 +22,8 @@ import nc_physics as NP
 from .page_plots import METRICS
 from .widgets import Page, button, hint, banner, hbox
 from .widgets import FigurePanel
+from . import ease
+from .errors import friendly
 from . import style
 
 GOALS = [("order_S", "Alignment — order parameter S"), ("file_order_S_pooled", "Alignment — S of all fiber pixels pooled"),
@@ -38,6 +41,8 @@ SHORT = {"amf_freq_hz": ("AMF frequency (Hz)", 0), "amf_time_min": ("AMF time (m
          "inc_min": ("Incubation (min)", 0), "collagen_mg_ml": ("Collagen (mg/mL)", 1),
          "amf_app_set": ("Ap-p set (A)", 2), "amf_coil_turns": ("Coil (turns)", 0),
          "amf_b_peak_mT": ("B field, peak (mT)", 1), "amf_ampere_turns": ("Ap-p × turns", 0)}
+NOTHING = ("Nothing loaded. Results of a run are added automatically; or drop result spreadsheets or a results "
+           "folder here.")
 SUMMARY_RE = re.compile(r"^((\d{6}|other)(-\d{6})?_summary|summary)\.xlsx$")
 
 
@@ -86,7 +91,7 @@ class PlannerPage(Page):
         gl.addWidget(hbox(button("Load spreadsheet(s)…", "primary", slot=self.load_dialog),
                           button("Load results folder…", slot=self.load_folder_dialog),
                           button("Clear", "link", slot=self.clear)))
-        self.src_label = hint("Nothing loaded. Results of a run are added automatically.")
+        self.src_label = hint(NOTHING)
         gl.addWidget(self.src_label)
         self.excl_qc = QCheckBox("Leave out files the quality check marked ‘check’")
         self.excl_qc.setChecked(True)
@@ -157,6 +162,9 @@ class PlannerPage(Page):
         self.vt.horizontalHeader().setStretchLastSection(True)
         self.vt.setMinimumHeight(330)
         gl.addWidget(self.vt)
+        gl.addWidget(hbox(button("Ranges from the data", "link", slot=self.ranges_from_data,
+                                 tip="Set From–To of the ticked settings to the range in the loaded experiments "
+                                     "(forgets ranges you typed)")))
         gl.addWidget(hint("Tick the settings that vary between your experiments. ‘From’–‘To’ is the range the "
                           "planner may suggest from — widen it to the instrument limits to explore (e.g. the coil's "
                           "highest frequency). Suggestions are rounded to ‘Step’, or limited to a list of values "
@@ -288,6 +296,17 @@ class PlannerPage(Page):
         split.setStretchFactor(1, 1)
         split.setSizes([560, 760])
 
+        self._filling, self._edited = False, set()
+        self._restore_vars()
+        self.vt.itemChanged.connect(self._var_edited)
+        for key in self.vrow:
+            self._use(key).toggled.connect(self._save_vars)
+            self._cell(key, 6, check=True).toggled.connect(self._save_vars)
+        ease.remember("planner", dict(metric=self.metric_cb, change=self.change, direction=self.direction,
+                                      excl_qc=self.excl_qc, sub_sham=self.sub_sham, n_sugg=self.n_sugg,
+                                      map_show=self.map_show,
+                                      **{f"phys_{k}": w for k, w in self.phys.items()}))
+
     # ------------------------------------------------------------------ data
     def load_dialog(self):
         start = QSettings().value("plots/last_dir", os.path.expanduser("~"))
@@ -321,7 +340,7 @@ class PlannerPage(Page):
             pf = pd.concat(parts, ignore_index=True, sort=False)
             self.pf = pf.drop_duplicates(subset=["file"], keep="last").reset_index(drop=True)
         if errs:
-            QMessageBox.warning(self, "Some spreadsheets were not loaded", "\n".join(errs[:10]))
+            QMessageBox.warning(self, "Some spreadsheets were not loaded", friendly("\n".join(errs[:10])))
         self.rebuild(set_ranges=True)
 
     def clear(self):
@@ -330,6 +349,58 @@ class PlannerPage(Page):
 
     def rebuild(self, *_, set_ranges=False):
         """Pair the files into experiments for the chosen metric; update the 'In data' column."""
+        self._filling = True
+        try:
+            self._rebuild(set_ranges)
+        finally:
+            self._filling = False
+        if set_ranges:
+            self._save_vars()
+
+    def ranges_from_data(self):
+        self._edited.clear()
+        self.rebuild(set_ranges=True)
+
+    # ---- the settings table is remembered between sessions
+    def _var_edited(self, it):
+        if self._filling or it.column() not in (3, 4, 5):
+            return
+        self._edited.add(list(self.vrow)[it.row()])
+        self._save_vars()
+
+    def _save_vars(self, *_):
+        if self._filling:
+            return
+        out = {}
+        for key, i in self.vrow.items():
+            out[key] = dict(use=self._use(key).isChecked(), log=self._cell(key, 6, check=True).isChecked(),
+                            lo=self.vt.item(i, 3).text(), hi=self.vt.item(i, 4).text(),
+                            step=self.vt.item(i, 5).text(), edited=key in self._edited)
+        QSettings().setValue("planner/variables", json.dumps(out))
+
+    def _restore_vars(self):
+        try:
+            saved = json.loads(QSettings().value("planner/variables", "") or "{}")
+        except ValueError:
+            saved = {}
+        self._filling = True
+        try:
+            for key, d in saved.items():
+                if key not in self.vrow:
+                    continue
+                i = self.vrow[key]
+                for c, k in ((3, "lo"), (4, "hi"), (5, "step")):
+                    if d.get(k):
+                        self.vt.item(i, c).setText(str(d[k]))
+                self._use(key).setChecked(bool(d.get("use")))
+                if key != "premixed":
+                    self._cell(key, 6, check=True).setChecked(bool(d.get("log")))
+                if d.get("edited"):
+                    self._edited.add(key)
+        finally:
+            self._filling = False
+
+    def _rebuild(self, set_ranges):
         notes = []
         if len(self.pf):
             self.exp, notes = PL.build_experiments(self.pf, self.metric_cb.currentData(), self.change.currentData(),
@@ -349,7 +420,14 @@ class PlannerPage(Page):
             if set_ranges and d and d["n"]:
                 use = d["distinct"] > 1
                 self._use(key).setChecked(use)
-                if use:
+                if use and key in self._edited:          # a range you typed: keep it, widened to the data
+                    try:
+                        lo, hi = min(self._num(key, 3), d["lo"]), max(self._num(key, 4), d["hi"])
+                    except ValueError:
+                        lo, hi = d["lo"], d["hi"]
+                    self._set(key, 3, lo)
+                    self._set(key, 4, hi)
+                elif use:
                     self._set(key, 3, d["lo"])
                     self._set(key, 4, d["hi"])
                 if key == "nc_conc_nM" and d["lo"] <= 0:
@@ -358,7 +436,7 @@ class PlannerPage(Page):
         self.src_label.setText(
             (f"{len(self.pf)} file(s) from {len(self.sources)} spreadsheet(s) → {len(self.exp)} experiment(s) "
              f"(After-AMF files with a Before-AMF file) in {n_s} sample(s)." if len(self.pf) else
-             "Nothing loaded. Results of a run are added automatically.") + ("\n" + "; ".join(notes) if notes else ""))
+             NOTHING) + ("\n" + "; ".join(notes) if notes else ""))
         self._fill_data()
 
     def update_physics(self, *_):
