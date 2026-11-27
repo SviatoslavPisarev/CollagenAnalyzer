@@ -66,6 +66,14 @@ On the **Quality check** page you can train a model on your own labelled files (
 file name marks a problem) and apply it to new runs. Each run also writes **mmddyy_tiles.csv**, the metrics of every
 13 µm tile, for finding local patterns. See section 14 of the manual.
 
+### Time savers (new)
+
+**Recent analyses** (Files step and Results & plots → Recent) reopen earlier results on every results page in one click.
+**Drop** a results folder on Results & plots, Patterns or the Experiment planner to load it. A **sound and notification** tell
+you when a run finishes; if it fails, the app says what went wrong and what to do. **Keyboard shortcuts** (⌘/Ctrl + 1…6 pages,
+R run, S save graph, F full screen; ⌘/ lists them), a **new-version notice**, and every page remembers its choices. See
+section 23 of the manual.
+
 ### Patterns (new)
 
 The **Patterns** page clusters the per-tile table into structure types (Gaussian mixture or k-means on standardised tile

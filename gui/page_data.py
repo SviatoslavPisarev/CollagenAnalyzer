@@ -17,6 +17,7 @@ from .common import (IMAGE_EXT, parse_file_name, read_header, kind_text, STD_FIE
 from .fields_dialog import FieldsDialog
 from .widgets import Page, Card, ModeCard, button, hint, banner, hbox
 from . import style
+from . import ease
 
 LEFT = ["", "File", "Folder", "Date", "Sample", "QC"]
 RIGHT = ["Type", "Pixel (µm)"]
@@ -232,6 +233,46 @@ class ReadyPanel(QFrame):
             self._line(self.check_box, True, f"{nm} value(s) typed by hand will be used")
 
 
+class RecentCard(Card):
+    """Recent analyses, shown on the Files step while no images are chosen: one click reopens the results."""
+    open_entry = Signal(dict)
+
+    def __init__(self, parent=None):
+        super().__init__("Recent analyses", "Open earlier results in Results & plots, Patterns and the Experiment "
+                         "planner — or choose images above to start a new analysis.", parent)
+        self.rows = QVBoxLayout()
+        self.rows.setSpacing(4)
+        self.lay.addLayout(self.rows)
+        ease.recent_changed.changed.connect(self.refresh)
+        self.refresh()
+
+    def refresh(self):
+        while self.rows.count():
+            w = self.rows.takeAt(0).widget()
+            if w:
+                w.setParent(None)
+        lst = ease.recent_list()[:5]
+        for e in lst:
+            title, detail = ease.describe(e)
+            name = QLabel(title)
+            name.setStyleSheet("font-weight: 600;")
+            name.setToolTip(e.get("folder", ""))
+            info = hint(detail)
+            info.setWordWrap(False)
+            col = QWidget()
+            cl = QVBoxLayout(col)
+            cl.setContentsMargins(0, 0, 0, 0)
+            cl.setSpacing(0)
+            cl.addWidget(name)
+            cl.addWidget(info)
+            row = hbox(col, "stretch", button("Open results", slot=lambda _=False, e=e: self.open_entry.emit(e)),
+                       button("Forget", "link", tip="Remove from this list (the files stay)",
+                              slot=lambda _=False, f=e.get("folder", ""): ease.forget_recent(f)),
+                       stretch_end=False)
+            self.rows.addWidget(row)
+        self.has_entries = bool(lst)
+
+
 class _HeaderSignals(QObject):
     done = Signal(str, dict)
 
@@ -320,6 +361,9 @@ class DataPage(Page):
         self.multi_row = hbox(self.add_btn, self.remove_btn, self.clear_btn)
         src.lay.addWidget(self.multi_row)
         self.lay.addWidget(src)
+        self.recent = RecentCard()
+        self.lay.addWidget(self.recent)
+        ease.recent_changed.changed.connect(self._show_recent)
 
         # ---- files card
         files = Card()
@@ -502,7 +546,11 @@ class DataPage(Page):
             self.after_pattern = pat
             self.refresh()
 
+    def _show_recent(self):
+        self.recent.setVisible(self.recent.has_entries and not self.folders and not self.single)
+
     def refresh(self):
+        self._show_recent()
         self.folder_list.clear()
         self.folder_list.addItems(self.folders)
         if self.mode == "file":
