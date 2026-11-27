@@ -304,7 +304,7 @@ the metric and options below them.</p>
 <table>
 <tr><th>Graph</th><th>Use it for</th><th>Options</th></tr>
 <tr><td>Metric vs depth / time</td><td>How a metric changes through the gel or over time; one line per file</td><td>x-axis (depth, time, image number), line style, smoothing over N images</td></tr>
-<tr><td>Metric per file</td><td>Comparing files: bars (mean ± SD/SEM), box plots, violin plots or points</td><td>Show every analysed image as a dot</td></tr>
+<tr><td>Metric per file</td><td>Comparing files: bars (mean ± SD, SEM or 95 % CI), box plots, violin plots or points</td><td>Individual images as dots: Style → Bars &amp; points</td></tr>
 <tr><td>Change after AMF / sham, per sample</td><td>(after − before) / before in % for every sample that has both; sham gels are grey</td><td><i>Subtract the change of the sham gels</i>: each bar minus the mean sham change of the same date</td></tr>
 <tr><td>Change by group with statistics</td><td>One dot per gel, bars = mean ± 95 % CI for each group (NC + AMF, AMF only, sham); p-values and the field-effect comparison below the graph (Section 18)</td><td>% or absolute change; one panel per group value (e.g. AMF frequency)</td></tr>
 <tr><td>Metric vs experimental parameter</td><td>Dose–response style: a metric against NC concentration, collagen, AMF frequency/time/voltage, incubation time</td><td>Points or points joined by lines (per color), log x-axis</td></tr>
@@ -315,17 +315,42 @@ the metric and options below them.</p>
 <h3>4. Layout and labels</h3>
 <ul>
 <li><b>Panels:</b> all files on one graph; one panel per file (side by side); or one panel per group — by sample, date, condition,
-NC concentration, NC mixing, collagen or AMF frequency. <i>Panels per row</i> and <i>Same y-axis</i> control the grid.</li>
-<li><b>Colors:</b> before/after (blue/orange, sham grey), group (NC + AMF / AMF only / sham), each file its own color, or by sample, NC concentration, mixing, collagen, AMF
-frequency/time, date (numbers get a color scale).</li>
-<li><b>Legend labels:</b> condition + AMF settings + file number (default), sample + condition, full name, file number, or condition + NC conditions.
-<b>Legend</b> position: automatic, inside, right, below, or none.</li>
-<li><b>Title, axis labels, y range, font size, grid:</b> leave empty for automatic.</li>
+group, NC concentration, NC mixing, collagen or AMF frequency. <i>Panels per row</i> and <i>Same y-axis</i> control the grid.</li>
+<li><b>Colors:</b> before/after (blue/orange, sham grey), group (NC + AMF / AMF only / sham), each file its own color, or by sample, NC
+concentration, mixing, collagen, AMF frequency/time, date (numbers get a color scale).</li>
+<li><b>Legend labels:</b> condition + AMF settings + file number (default), sample + condition, full name, file number, or condition + NC conditions.</li>
+<li><b>Title, x- and y-axis label:</b> type your own, or leave empty for automatic.</li>
 </ul>
-<h3>5. Save</h3>
-<p><b>Save figure…</b> writes PNG, PDF, SVG or TIFF at the chosen resolution; untick <i>automatic</i> size to set the width × height in
-inches (e.g. 3.5 × 2.6 in for a single journal column). <b>Export plotted data (CSV)…</b> saves exactly the numbers in the graph,
-for Prism, Origin or Excel. The toolbar above the graph zooms, pans and resets the view.</p>
+<h3>5. Style</h3>
+<p>Everything about the look of the graph. Pick a ready-made <b>style</b> at the top — <i>Journal figure</i> (Arial 7–8 pt, clean axes,
+colour-blind-safe colours), <i>Slides</i> (large text) or <i>Greyscale print</i> — then adjust it. <b>Save as…</b> keeps your own styles
+(★ in the list) so every figure of a paper looks the same; the last style used is remembered.</p>
+<img class="shot" src="img/plot_style.png" width="880">
+<p class="cap">The Style panel: Text, Bars &amp; points and Axes &amp; colours tabs.</p>
+<table>
+<tr><th>Tab</th><th>Settings</th></tr>
+<tr><td>Text</td><td>Font (any font installed on the computer) and separate sizes in pt for the title, panel titles, axis labels, tick labels,
+legend and the numbers on the graph; bold title; title left / centre / right.</td></tr>
+<tr><td>Labels</td><td>Show or hide the figure title and panel titles; legend inside, right, below, above or none, number of columns,
+frame; x tick labels at 0°, 30°, 45° or 90°; numbers on the graph (bar values, n and p) on or off; <i>Reset label positions</i>.</td></tr>
+<tr><td>Bars &amp; points</td><td>Bar width, opacity and dark outline; error-bar cap size and line width; <b>individual data points</b> on or
+off (images in per-file and depth graphs, gels in the group graph, images at each setting in the parameter graph), their size,
+opacity, sideways spread and colour; line width and marker size.</td></tr>
+<tr><td>Fit</td><td><b>Trend lines</b> for <i>Metric vs experimental parameter</i> (one per colour, fitted to the file means) and
+<i>Metric vs depth / time</i> (one per file): straight line, straight line on log x, or the mean; optional 95 % confidence band;
+equation and R² in the legend (also in the CSV export).</td></tr>
+<tr><td>Axes &amp; colours</td><td>y axis from 0 for bars, log y, clean axes (no top / right lines), grid, tick marks in or out, y and x range;
+palette (app colours, colour-blind safe Okabe–Ito, tab10, greyscale, viridis) and the colours of Before, After AMF, sham and AMF-only
+(click a swatch to change it).</td></tr>
+</table>
+<div class="tip"><b>Move any label with the mouse:</b> drag the title, panel titles, axis labels, the legend or the numbers on the graph to
+where you want them. The positions are kept when you change other settings, until you choose another kind of graph or click
+<i>Reset label positions</i>. (Switch off the zoom / pan buttons of the toolbar first.)</div>
+<h3>6. Save</h3>
+<p><b>Figure size:</b> automatic (fills the window), journal 1, 1.5 or 2 columns, a 16:9 slide, or a custom width × height in inches.
+A fixed size is shown on screen at that size, so the text sizes look as they will on paper. <b>Save figure…</b> writes PNG, PDF, SVG
+or TIFF at the chosen resolution, always on a white background. <b>Export plotted data (CSV)…</b> saves exactly the numbers in
+the graph (and the fit equations), for Prism, Origin or Excel. The toolbar above the graph zooms, pans and resets the view.</p>
 
 <h2 id="results" class="newpage"><a name="results"></a>9. What the results contain</h2>
 <table>
