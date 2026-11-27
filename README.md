@@ -190,4 +190,12 @@ them on every push (**Actions → Tests**).
 | `CollagenAnalyzer.spec`, `.github/workflows/build.yml` | standalone-app build |
 | `.github/workflows/tests.yml` | runs the tests on every push and pull request |
 | `CITATION.cff` | how to cite the app (GitHub: “Cite this repository”) |
+| `LICENSE` | MIT License of the app's code |
+| `THIRD_PARTY_NOTICES.md`, `licenses/` | licenses of the packages inside the standalone app (PySide6/Qt: LGPL-3.0) |
 | `.gitignore` | keeps Python cache files (`__pycache__`) and `.DS_Store` out of the repository |
+
+## License
+
+The app's code is released under the [MIT License](LICENSE). The standalone app also contains third-party
+packages under their own licenses — notably PySide6 / Qt under the LGPL-3.0, used unmodified; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Both files are also inside the downloaded app.

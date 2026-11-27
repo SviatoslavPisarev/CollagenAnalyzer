@@ -7,6 +7,7 @@ abstract: >-
   before and after alternating-magnetic-field treatment with sham controls, gel-level statistics,
   registered local change maps, quality checks and Bayesian experiment planning.
 type: software
+license: MIT
 authors:
   - family-names: Pisarev
     given-names: Sviatoslav
