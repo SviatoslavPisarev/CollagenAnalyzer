@@ -92,7 +92,7 @@ class RunPage(Page):
     run_finished = Signal(list)          # list of (kind, path)
 
     def __init__(self, data_page, params_page, outputs_page, parent=None):
-        super().__init__("4 · Run", "Check the summary and start. The analysis runs in the background; you can "
+        super().__init__("Run", "Check the summary and start. The analysis runs in the background; you can "
                          "keep using the app (e.g. look at earlier results) while it works.")
         self.data, self.params, self.outputs = data_page, params_page, outputs_page
         self.proc = None
@@ -213,7 +213,7 @@ class RunPage(Page):
             + (f", {nth(v['tstep'], 'time point')}" if v["tstep"] > 1 else "") + f"; {thr}; hotspot {v['hotspot']}; "
             f"{v['workers']} parallel worker{'s' if v['workers'] > 1 else ''}. Results "
             + (f"in {root}" if root else "next to the data") + "."
-            + (f" {self.data.n_manual()} value(s) typed by hand on the Data page." if self.data.n_manual() else ""))
+            + (f" {self.data.n_manual()} value(s) typed by hand in the Files step." if self.data.n_manual() else ""))
         probs = self.problems_list()
         self.problems.setText("\n".join("• " + p for p in probs))
         self.problems.setVisible(bool(probs))
@@ -241,7 +241,7 @@ class RunPage(Page):
         if "--metadata" in args:
             i = args.index("--metadata")
             args = args[:i] + args[i + 2:]
-            args.append("   # (values typed on the Data page are not part of this command)")
+            args.append("   # (values typed in the Files step are not part of this command)")
         if "--files-from" in args:
             i = args.index("--files-from")
             files = self.data.selected_files()

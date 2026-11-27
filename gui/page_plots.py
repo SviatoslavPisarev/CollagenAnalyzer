@@ -7,9 +7,10 @@ import numpy as np
 import pandas as pd
 from PySide6.QtCore import Qt, QTimer, QSettings
 from PySide6.QtGui import QColor, QIcon, QPixmap
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox,
-                               QHBoxLayout, QLabel, QLineEdit, QMessageBox, QScrollArea, QSpinBox, QSplitter,
-                               QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QHeaderView, QSizePolicy)
+from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QFrame,
+                               QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
+                               QScrollArea, QSpinBox, QSplitter, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+                               QHeaderView, QSizePolicy)
 
 import matplotlib
 matplotlib.use("QtAgg")
@@ -20,6 +21,7 @@ import matplotlib.colors as mcolors
 import collagen_core as core
 import gelstats as GS
 from .widgets import Page, button, hint, hbox
+from .widgets import ThemedCanvas
 from . import style
 
 METRICS = [
@@ -75,6 +77,8 @@ PLOT_TYPES = [
     ("param", "Metric vs experimental parameter (NC conc., AMF …)"),
     ("dist", "Distribution (pore size, fiber size, length, angle)"),
 ]
+TILES = [("series", "Depth / time", "lines"), ("perfile", "Per file", "bars"), ("change", "Change per gel", "delta"),
+         ("stats", "By group + stats", "groups"), ("param", "Vs setting", "scatter"), ("dist", "Distribution", "dist")]
 DISTS = [("lt", "Pore size (local thickness, area-weighted)"), ("fib", "Fiber size (local thickness)"),
          ("seg", "Fiber segment length"), ("ang", "Fiber angle (rose plot)")]
 TAB = ["#3b6fb6", "#d9622b", "#2a9d5c", "#8e44ad", "#c0392b", "#7f8c8d", "#e0a800", "#17a2b8", "#6d4c41", "#ad1457"]
@@ -168,7 +172,7 @@ class ResultsStore:
 
 class PlotsPage(Page):
     def __init__(self, parent=None):
-        super().__init__("Results & Plots", "Load result spreadsheets (mmddyy_summary.xlsx or summary.xlsx) and "
+        super().__init__("Results & plots", "Load result spreadsheets (mmddyy_summary.xlsx or summary.xlsx) and "
                          "combine any files in your own graphs. Results of a run are loaded automatically.",
                          scroll=False)
         self.store = ResultsStore()
@@ -218,12 +222,28 @@ class PlotsPage(Page):
 
         g = QGroupBox("3. What to plot")
         f = QFormLayout(g)
+        tiles = QWidget()
+        tg = QGridLayout(tiles)
+        tg.setContentsMargins(0, 0, 0, 4)
+        tg.setSpacing(8)
+        self.tiles, grp = {}, QButtonGroup(self)
+        for i, (k, t, ic) in enumerate(TILES):
+            b = QPushButton(" " + t)
+            b.setObjectName("tile")
+            b.setCheckable(True)
+            b.setCursor(Qt.PointingHandCursor)
+            b.setToolTip(dict(PLOT_TYPES)[k])
+            b.clicked.connect(lambda _=False, key=k: self.ptype.setCurrentIndex(self.ptype.findData(key)))
+            grp.addButton(b)
+            tg.addWidget(b, i // 2, i % 2)
+            self.tiles[k] = (b, ic)
+        f.addRow(tiles)
         self.ptype = QComboBox()
         for k, t in PLOT_TYPES:
             self.ptype.addItem(t, k)
         f.addRow("Graph", self.ptype)
-        self.metric = QComboBox()
-        f.addRow("Metric", self.metric)
+        self.metric_cb = QComboBox()
+        f.addRow("Metric", self.metric_cb)
         self.metric_row = f.rowCount() - 1
         self.dist = QComboBox()
         for k, t in DISTS:
@@ -330,11 +350,17 @@ class PlotsPage(Page):
         rl = QVBoxLayout(right)
         rl.setContentsMargins(8, 0, 0, 0)
         self.fig = Figure(figsize=(8, 5), layout="constrained")
-        self.canvas = FigureCanvasQTAgg(self.fig)
+        self.canvas = ThemedCanvas(self.fig)
         self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.toolbar = NavigationToolbar2QT(self.canvas, right)
         rl.addWidget(self.toolbar)
         rl.addWidget(self.canvas, 1)
+        self.cards = QWidget()
+        self.cards_lay = QHBoxLayout(self.cards)
+        self.cards_lay.setContentsMargins(0, 6, 0, 0)
+        self.cards_lay.setSpacing(10)
+        self.cards.hide()
+        rl.addWidget(self.cards)
         self.note = hint("")
         rl.addWidget(self.note)
         split.addWidget(right)
@@ -343,7 +369,7 @@ class PlotsPage(Page):
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self.redraw)
-        for w in (self.ptype, self.metric, self.dist, self.xaxis, self.style_, self.err, self.layout_, self.group_by,
+        for w in (self.ptype, self.metric_cb, self.dist, self.xaxis, self.style_, self.err, self.layout_, self.group_by,
                   self.color_by, self.label_by, self.legend_pos):
             w.currentIndexChanged.connect(self._controls_changed)
         for w in (self.smooth, self.ncols, self.font, self.fig_w, self.fig_h):
@@ -413,6 +439,8 @@ class PlotsPage(Page):
     def _fill_tree(self):
         self.tree.blockSignals(True)
         old = self._ticked_set() if self.tree.topLevelItemCount() else None
+        known = set(getattr(self, "_known", set()))         # files shown before: keep their tick; new ones ticked
+        self._known = set(self.store.info)
         self.tree.clear()
         groups = {}
         for u, r in self.store.info.items():
@@ -433,7 +461,7 @@ class PlotsPage(Page):
                     it.setForeground(0, QColor(style.WARN))
                     it.setToolTip(0, f"{u}\nQuality check: {r.get('qc_flags')}")
                 it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
-                it.setCheckState(0, Qt.Checked if (old is None or u in old) else Qt.Unchecked)
+                it.setCheckState(0, Qt.Checked if (old is None or u in old or u not in known) else Qt.Unchecked)
                 it.setForeground(1, QColor(style.AFTER if r["condition"] == "After AMF" else
                                            style.SHAM if GS.is_sham(r["condition"]) else style.BEFORE))
                 top.addChild(it)
@@ -490,22 +518,22 @@ class PlotsPage(Page):
 
     # ------------------------------------------------------------------ controls
     def _fill_metric(self):
-        cur = self.metric.currentData()
-        self.metric.blockSignals(True)
-        self.metric.clear()
+        cur = self.metric_cb.currentData()
+        self.metric_cb.blockSignals(True)
+        self.metric_cb.clear()
         cols = set(self.store.per.columns) if not self.store.per.empty else None
         for k, t in METRICS:
             if cols is None or k in cols:
-                self.metric.addItem(t, k)
+                self.metric_cb.addItem(t, k)
         if cols is not None:
             known = {k for k, _ in METRICS} | set(core.LABEL_COLS) | {"uid", "_src"} | set(self.store.user_fields)
             for c in sorted(cols - known):
                 if not c.startswith(("meta_", "slice_", "set_", "file_", "results_folder", "folder")) \
                         and pd.api.types.is_numeric_dtype(self.store.per[c]):
-                    self.metric.addItem(f"(other) {c}", c)
-        i = self.metric.findData(cur)
-        self.metric.setCurrentIndex(max(i, 0))
-        self.metric.blockSignals(False)
+                    self.metric_cb.addItem(f"(other) {c}", c)
+        i = self.metric_cb.findData(cur)
+        self.metric_cb.setCurrentIndex(max(i, 0))
+        self.metric_cb.blockSignals(False)
 
     def _controls_changed(self, *_):
         t = self.ptype.currentData()
@@ -543,11 +571,15 @@ class PlotsPage(Page):
             combo.setCurrentIndex(max(i, 0))
         self.xaxis.blockSignals(False)
         self.style_.blockSignals(False)
+        for k, (b, ic) in self.tiles.items():
+            b.setChecked(k == t)
+            b.setIcon(style.icon(ic, style.ACCENT_TEXT if k == t else style.TEXT2, 18))
         f = self.form3
+        f.setRowVisible(self.ptype, False)
         vis = dict(metric=t != "dist", dist=t == "dist", xaxis=t in ("series", "param"), style=True,
                    err=t in ("perfile", "param", "series"), smooth=t == "series", points=t in ("perfile", "series"),
                    logx=t == "param", sub_sham=t == "change")
-        for w, on in [(self.metric, vis["metric"]), (self.dist, vis["dist"]), (self.xaxis, vis["xaxis"]),
+        for w, on in [(self.metric_cb, vis["metric"]), (self.dist, vis["dist"]), (self.xaxis, vis["xaxis"]),
                       (self.style_, vis["style"]), (self.err, vis["err"]), (self.smooth, vis["smooth"]),
                       (self.points, vis["points"]), (self.logx, vis["logx"]), (self.sub_sham, vis["sub_sham"])]:
             f.setRowVisible(w, on)
@@ -678,7 +710,7 @@ class PlotsPage(Page):
                 last_row = i // ncols == nrows - 1 or i + ncols >= len(axs)
                 if xl and (not many or last_row):
                     a.set_xlabel(xl)
-                if yl and (not many or i % ncols == 0):
+                if yl and (not many or (i % ncols == 0 and nrows == 1)):
                     a.set_ylabel(yl)
                 try:
                     lo = float(self.ymin.text()) if self.ymin.text().strip() else None
@@ -689,6 +721,8 @@ class PlotsPage(Page):
                     pass
             for item in [a.title, a.xaxis.label, a.yaxis.label] + a.get_xticklabels() + a.get_yticklabels():
                 item.set_fontsize(fs if item in (a.xaxis.label, a.yaxis.label, a.title) else fs - 1)
+        if yl and many and nrows > 1:     # several rows: one shared y label (row labels would overlap)
+            self.fig.supylabel(yl, fontsize=fs)
         pos = self.legend_pos.currentIndex()
         if pos == 0:                      # automatic: inside a single graph, below several graphs
             pos = 1 if not many else 3
@@ -718,8 +752,53 @@ class PlotsPage(Page):
             self.fig.suptitle(t, fontsize=fs + 2)
 
     # ------------------------------------------------------------------ drawing
+    def on_theme(self):
+        self._controls_changed()
+        tb = self.toolbar                       # matplotlib picks dark or light icons from the background
+        for _, _, image, callback in getattr(tb, "toolitems", ()):
+            act = getattr(tb, "_actions", {}).get(callback)
+            if act is not None and image:
+                try:
+                    act.setIcon(tb._icon(image + ".png"))
+                except Exception:
+                    pass
+
+    def _set_cards(self, cards):
+        """Summary cards under the graph: (label, value, line1, line2, warn) tuples; [] hides the row."""
+        while self.cards_lay.count():
+            w = self.cards_lay.takeAt(0).widget()
+            if w is not None:
+                w.hide()
+                w.setParent(None)
+                w.deleteLater()
+        for label, value, l1, l2, warn in cards:
+            fr = QFrame()
+            fr.setObjectName("statCardWarn" if warn else "statCard")
+            v = QVBoxLayout(fr)
+            v.setContentsMargins(14, 10, 14, 12)
+            v.setSpacing(2)
+            a = QLabel(label)
+            a.setObjectName("statWarn" if warn else "statLabel")
+            a.setWordWrap(True)
+            v.addWidget(a)
+            if value:
+                b = QLabel(value)
+                b.setObjectName("statValue")
+                v.addWidget(b)
+            for txt in (l1, l2):
+                if txt:
+                    c = QLabel(txt)
+                    c.setObjectName("statWarn" if warn else "statSub")
+                    c.setWordWrap(True)
+                    v.addWidget(c)
+            v.addStretch(1)
+            self.cards_lay.addWidget(fr, 1)
+        self.cards.setVisible(bool(cards))
+
     def redraw(self):
         self.plotted = []
+        if self.ptype.currentData() != "stats":
+            self._set_cards([])
         files = self.selected()
         if self.store.per.empty or not files:
             self.fig.clear()
@@ -744,7 +823,7 @@ class PlotsPage(Page):
         self.canvas.draw_idle()
 
     def _metric(self):
-        return self.metric.currentData(), self.metric.currentText()
+        return self.metric_cb.currentData(), self.metric_cb.currentText()
 
     def plot_series(self, files):
         col, mlabel = self._metric()
@@ -973,9 +1052,33 @@ class PlotsPage(Page):
             a.set_title(gname)
         ylab = (f"{mlabel.split(' (')[0]}: change (%)" if change == "pct"
                 else f"Δ {mlabel} (after − before)")
-        self._finish(axs, "", ylab, f"{mlabel}: change by group (dots = gels, bars = mean ± 95 % CI)")
-        self.note.setText("Each dot is one gel (After files of a gel averaged). Above each bar: paired test of "
-                          "the change against 0 (t-test). " + (" | ".join(texts) if texts else
+        self._finish(axs, "", ylab, f"{mlabel.split(' (')[0]}: change by group")
+        cards = []
+        for r in [x for x in self.plotted if x.get("row") == "comparison"][:3]:
+            what = str(r["comparison"])
+            head, _, tail = what.partition(" (")
+            label = f"{head[:1].upper() + head[1:]} · {tail.rstrip(')')}" if tail else what
+            if np.isfinite(r.get("p_welch", np.nan)):
+                cards.append((label, f"{r['difference']:+.3g}{unit}",
+                              f"95 % CI {r['diff_ci95_low']:.3g} to {r['diff_ci95_high']:.3g} · Welch "
+                              + GS.fmt_p(r["p_welch"]),
+                              f"Holm {GS.fmt_p(r['p_welch_holm'])} · g {r['hedges_g']:.2g} · "
+                              f"{int(r['n_a'])} vs {int(r['n_b'])} gels", False))
+            else:
+                cards.append((label, f"{r['difference']:+.3g}{unit}", "Needs ≥ 2 gels in each group for a test",
+                              f"{int(r['n_a'])} vs {int(r['n_b'])} gels", False))
+        have = set(exp["arm"])
+        if GS.TREATED in have and GS.SHAM not in have:
+            cards.append(("Before you report this", "", "No sham gel is ticked: the field effect (NC + AMF vs "
+                          "sham) cannot be tested.", "", True))
+        elif any(r[1] and "Needs" in (r[2] or "") for r in cards):
+            cards.append(("Before you report this", "", "Some groups have fewer than 2 gels. Add gels to test "
+                          "those comparisons.", "", True))
+        self._set_cards(cards)
+        self.note.setText("Dots = gels (After files of a gel averaged), bars = mean ± 95 % CI. Above each bar: paired test of "
+                          "the change against 0 (t-test). " + (" | ".join(texts[3:]) if len(texts) > 3 else
+                                                               "Comparisons in the cards; all numbers in the CSV export."
+                                                               if texts else
                           "Tick sham gels too for the field-effect comparison (NC + AMF vs sham).")
                           + (" " + "; ".join(notes) if notes else ""))
 
@@ -1121,6 +1224,7 @@ class PlotsPage(Page):
         try:
             if not self.auto_size.isChecked():
                 self.fig.set_size_inches(self.fig_w.value(), self.fig_h.value())
+            style.theme_figure(self.fig, night=False)     # saved figures: white paper, dark text
             self.fig.savefig(p, dpi=self.dpi.value(), bbox_inches="tight", facecolor="white")
         finally:
             self.fig.set_size_inches(old)

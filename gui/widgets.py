@@ -1,4 +1,5 @@
 """Small reusable widgets."""
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget, QPushButton,
                                QSizePolicy)
@@ -15,7 +16,7 @@ class Card(QFrame):
         self.lay.setSpacing(8)
         if title:
             t = QLabel(title)
-            t.setStyleSheet("font-weight: 700; font-size: 14px;")
+            t.setObjectName("cardTitle")
             self.lay.addWidget(t)
         if subtitle:
             s = QLabel(subtitle)
@@ -114,9 +115,10 @@ class ModeCard(QPushButton):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(14, 10, 14, 10)
         a = QLabel(title)
-        a.setStyleSheet("font-weight: 700; font-size: 14px; background: transparent;")
+        a.setObjectName("cardTitle")
+        a.setStyleSheet("background: transparent;")
         b = QLabel(text)
-        b.setStyleSheet("color: #6b7785; font-size: 11px; background: transparent;")
+        b.setObjectName("cardSub")
         b.setWordWrap(True)
         for w in (a, b):
             w.setAttribute(Qt.WA_TransparentForMouseEvents)
@@ -126,18 +128,28 @@ class ModeCard(QPushButton):
 
 
 class StepChip(QLabel):
-    """Phase indicator: waiting / active / done."""
-    STYLES = {
-        "wait": "background:#e9eef2; color:#6b7785; border-radius:12px; padding:5px 12px;",
-        "active": "background:#1f7a8c; color:white; border-radius:12px; padding:5px 12px; font-weight:600;",
-        "done": "background:#e9f5ec; color:#2e7d32; border-radius:12px; padding:5px 12px;",
-    }
+    """Phase indicator: waiting / active / done (colours from the theme's style sheet)."""
 
     def __init__(self, text):
         super().__init__(text)
+        self.setObjectName("stepChip")
         self.base = text
         self.set_state("wait")
 
     def set_state(self, st):
-        self.setStyleSheet(self.STYLES[st])
+        self.setProperty("state", st)
         self.setText(("✓ " if st == "done" else "") + self.base)
+        self.style().unpolish(self)
+        self.style().polish(self)
+
+
+class ThemedCanvas(FigureCanvasQTAgg):
+    """Matplotlib canvas whose figure follows the day / night theme on screen."""
+
+    def draw(self):
+        from . import style
+        try:
+            style.theme_figure(self.figure)
+        except Exception:
+            pass
+        super().draw()

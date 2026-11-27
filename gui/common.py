@@ -12,7 +12,7 @@ IMAGE_EXT = (".nd2", ".tif", ".tiff")
 
 DEFAULTS = vars(core.build_parser().parse_args(["."]))
 
-# Numeric parameters shown on the Parameters page.
+# Numeric parameters shown in the Settings step.
 # key = engine option (argparse dest), label, unit, min, max, step, decimals, help text
 NUMERIC = {
     "zstep": ("Analyse every Nth z-slice", "", 1, 500, 1, 0,
