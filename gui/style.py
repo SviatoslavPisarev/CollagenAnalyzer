@@ -75,6 +75,10 @@ ICONS = {
     "scatter": '<circle cx="7" cy="16" r="1.6"/><circle cx="11" cy="11" r="1.6"/><circle cx="16" cy="13" r="1.6"/>'
                '<circle cx="18" cy="6" r="1.6"/><path d="M4 4v16h16"/>',
     "dist": '<path d="M3 19c3 0 4-12 9-12s6 12 9 12"/>',
+    "expand": '<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/>',
+    "shrink": '<path d="M9 4v5H4M20 9h-5V4M15 20v-5h5M4 15h5v5"/>',
+    "save": '<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5"/><path d="M5 19h14"/>',
+    "copy": '<rect x="8" y="8" width="11" height="12" rx="1.5"/><path d="M5 16V5.5A1.5 1.5 0 0 1 6.5 4H15"/>',
 }
 
 

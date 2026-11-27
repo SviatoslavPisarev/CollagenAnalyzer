@@ -17,9 +17,10 @@ from matplotlib.colors import ListedColormap
 from matplotlib.figure import Figure
 from matplotlib.patches import Patch
 
+from ml import correlate as CR
 from ml import patterns as PT
 from .widgets import Page, button, hint, banner, hbox
-from .widgets import ThemedCanvas
+from .widgets import FigurePanel
 from . import style
 
 COLORS = ["#3b6fb6", "#d9622b", "#2a9d5c", "#8e44ad", "#c0392b", "#e0a800", "#17a2b8", "#6d4c41", "#ad1457",
@@ -34,6 +35,7 @@ class PatternsPage(Page):
         self.tiles = pd.DataFrame()
         self.sources = []
         self.res = None            # results of the last clustering
+        self.corr = None           # results of the last correlation search
         try:
             import sklearn  # noqa: F401
             self.have_sklearn = True
@@ -100,11 +102,34 @@ class PatternsPage(Page):
         if not self.have_sklearn:
             cl.addWidget(banner("scikit-learn is not installed (pip install scikit-learn): clustering is not available."))
 
-        g = QGroupBox("4. Save")
+        g = QGroupBox("4. Strongest correlations")
+        f = QFormLayout(g)
+        self.corr_level = QComboBox()
+        for k, lab in CR.LEVELS:
+            self.corr_level.addItem(lab, k)
+        self.corr_level.setMinimumContentsLength(24)
+        self.corr_level.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.corr_hide = QCheckBox("Hide pairs linked by how they are measured")
+        self.corr_hide.setChecked(True)
+        self.corr_hide.setToolTip("e.g. fiber density ↔ pore size, alignment S ↔ coherency: these move together "
+                                  "by construction, so they would always top the list.")
+        self.corr_level.currentIndexChanged.connect(lambda *_: self.find_correlations(show=True))
+        self.corr_hide.toggled.connect(lambda *_: self.find_correlations(show=True))
+        f.addRow("Look at", self.corr_level)
+        f.addRow(self.corr_hide)
+        f.addRow(button("Find strongest correlations", "primary", slot=lambda: self.find_correlations(show=True),
+                        tip="Ranks every pair by Spearman's ρ (uses the metrics ticked in section 2). "
+                            "No scikit-learn needed."))
+        f.addRow(hint("Runs by itself when tiles are loaded. With tile types found, the change of each type's "
+                      "share is tested against the AMF settings too."))
+        cl.addWidget(g)
+
+        g = QGroupBox("5. Save")
         gl = QVBoxLayout(g)
         gl.addWidget(hbox(button("Export results (Excel)…", slot=self.export)))
-        gl.addWidget(hint("Sheets: tile types (profiles), share per file, change per sample, and every tile with its "
-                          "type."))
+        gl.addWidget(hint("Sheets: tile types (profiles), share per file, change per sample, every tile with its "
+                          "type, and the ranked correlations. Each graph has its own Copy / Save… / Full screen "
+                          "buttons (or double-click it)."))
         cl.addWidget(g)
         self.status = hint("")
         cl.addWidget(self.status)
@@ -121,7 +146,7 @@ class PatternsPage(Page):
         # types
         w = QWidget(); l = QVBoxLayout(w)
         self.prof_fig = Figure(figsize=(8, 3.6), layout="constrained")
-        l.addWidget(ThemedCanvas(self.prof_fig), 2)
+        l.addWidget(FigurePanel(self.prof_fig, name="tile_types"), 2)
         self.prof_table = _table()
         l.addWidget(self.prof_table, 1)
         l.addWidget(hint("Colours: how far each type's average is from the average of all tiles, in standard "
@@ -130,7 +155,7 @@ class PatternsPage(Page):
         # before / after
         w = QWidget(); l = QVBoxLayout(w)
         self.ba_fig = Figure(figsize=(8, 4.2), layout="constrained")
-        l.addWidget(ThemedCanvas(self.ba_fig), 2)
+        l.addWidget(FigurePanel(self.ba_fig, name="tile_types_before_after"), 2)
         self.ba_label = QLabel("")
         self.ba_label.setWordWrap(True)
         self.ba_label.setTextFormat(Qt.RichText)
@@ -149,9 +174,10 @@ class PatternsPage(Page):
         self.map_pair = QCheckBox("show the sample's before and after file side by side")
         self.map_pair.setChecked(True)
         self.map_pair.toggled.connect(self.draw_map)
-        l.addWidget(hbox(QLabel("File"), self.map_file, QLabel("Image"), self.map_img, self.map_pair))
         self.map_fig = Figure(figsize=(8, 4.5), layout="constrained")
-        l.addWidget(ThemedCanvas(self.map_fig), 1)
+        l.addWidget(FigurePanel(self.map_fig, name=lambda: "tile_map_" + str(self.map_file.currentData() or ""),
+                                controls=[QLabel("File"), self.map_file, QLabel("Image"), self.map_img,
+                                          self.map_pair]), 1)
         l.addWidget(hint("Each square is one tile at its place in the image, coloured by its type; white = tile not "
                          "used (image edge, hotspot, flagged or missing values)."))
         self.tabs.addTab(w, "Tile map")
@@ -165,18 +191,42 @@ class PatternsPage(Page):
             self.emb_color.addItem(lab, k)
         self.emb_method.currentIndexChanged.connect(self._embed_changed)
         self.emb_color.currentIndexChanged.connect(self.draw_embedding)
-        l.addWidget(hbox(QLabel("View"), self.emb_method, QLabel("Colour by"), self.emb_color))
         self.emb_fig = Figure(figsize=(7, 5), layout="constrained")
-        l.addWidget(ThemedCanvas(self.emb_fig), 1)
+        l.addWidget(FigurePanel(self.emb_fig, name="tile_space", controls=[QLabel("View"), self.emb_method,
+                                                                           QLabel("Colour by"), self.emb_color]), 1)
         l.addWidget(hint("Each dot is a tile (up to 4000 shown). Tiles close together have similar structure."))
         self.tabs.addTab(w, "Tile space")
         # k
         w = QWidget(); l = QVBoxLayout(w)
         self.k_fig = Figure(figsize=(6, 4), layout="constrained")
-        l.addWidget(ThemedCanvas(self.k_fig), 1)
+        l.addWidget(FigurePanel(self.k_fig, name="choosing_k"), 1)
         l.addWidget(hint("BIC for each number of types: the lowest value balances fit against complexity. Prefer a "
                          "small k you can interpret if the curve is flat."))
         self.tabs.addTab(w, "Choosing k")
+        # correlations
+        w = QWidget(); l = QVBoxLayout(w)
+        self.corr_label = QLabel("Load tile tables: the strongest correlations are listed here.")
+        self.corr_label.setWordWrap(True)
+        self.corr_label.setTextFormat(Qt.RichText)
+        self.corr_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        l.addWidget(self.corr_label)
+        csplit = QSplitter(Qt.Vertical)
+        csplit.setChildrenCollapsible(False)
+        self.corr_table = _table()
+        self.corr_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.corr_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.corr_table.itemSelectionChanged.connect(self.draw_correlation)
+        csplit.addWidget(self.corr_table)
+        self.corr_fig = Figure(figsize=(8, 4), layout="constrained")
+        self.corr_panel = FigurePanel(self.corr_fig, name=self._corr_name)
+        csplit.addWidget(self.corr_panel)
+        csplit.setSizes([230, 420])
+        l.addWidget(csplit, 1)
+        l.addWidget(hint("Ranked by the size of Spearman's ρ (−1…+1; any steadily rising or falling relation). "
+                         "n = independent units (samples, files, images or z-stacks — never single tiles). "
+                         "q = p corrected for testing many pairs: below 0.05 unlikely to be chance. A correlation "
+                         "is a lead to test, not proof of cause. Click a row to plot it."))
+        self.CORR_TAB = self.tabs.addTab(w, "Correlations")
         split.addWidget(self.tabs)
         split.setStretchFactor(0, 0)
         split.setStretchFactor(1, 1)
@@ -213,10 +263,15 @@ class PatternsPage(Page):
         self.tiles = PT.load_tiles(self.sources) if len(self.tiles) else t
         self.res = None
         self._summary()
+        self.find_correlations()
 
     def clear(self):
-        self.tiles, self.sources, self.res = pd.DataFrame(), [], None
+        self.tiles, self.sources, self.res, self.corr = pd.DataFrame(), [], None, None
         self._summary()
+        self.corr_label.setText("Load tile tables: the strongest correlations are listed here.")
+        _fill(self.corr_table, pd.DataFrame(), [])
+        self.corr_fig.clear()
+        self.corr_fig.canvas.draw_idle()
 
     def _summary(self):
         if not len(self.tiles):
@@ -303,11 +358,155 @@ class PatternsPage(Page):
         self.draw_before_after()
         self._fill_files()
         self._embed_changed()
+        self.find_correlations()
         self.tabs.setCurrentIndex(0)
 
+    def find_correlations(self, show=False):
+        """Rank the correlations at the chosen level; show=True also switches to the Correlations tab."""
+        if not len(self.tiles):
+            if show:
+                QMessageBox.information(self, "Patterns", "Load tile tables first (mmddyy_tiles.csv).")
+            return
+        level = self.corr_level.currentData()
+        feats = self.features()
+        need = 1 if level in ("settings", "depth") else 2
+        if len(feats) < need:
+            self.corr_label.setText("Tick at least two metrics in section 2.")
+            return
+        sel, _ = PT.select(self.tiles, self.excl_tiles.isChecked(), self.excl_qc.isChecked())
+        change = self.res["change"] if self.res else None
+        QGuiApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            table, data = CR.run(level, sel, feats, change, hide_linked=self.corr_hide.isChecked())
+        except Exception as e:
+            QGuiApplication.restoreOverrideCursor()
+            QMessageBox.warning(self, "Patterns", f"Correlations failed:\n{e}")
+            return
+        QGuiApplication.restoreOverrideCursor()
+        self.corr = dict(level=level, table=table, data=data, sel=sel, feats=feats)
+        lines = CR.headline(table)
+        if lines:
+            txt = "<b>Strongest correlations</b> — " + self.corr_level.currentText() + ":<ol style='margin:2px'>" \
+                  + "".join(f"<li>{x}</li>" for x in lines) + "</ol>"
+            if (table["q"] >= 0.1).all():
+                txt += ("<i>None is clearly beyond chance yet (all q ≥ 0.1): treat these as leads and add samples."
+                        "</i>")
+        else:
+            txt = {"settings": "No sample has a Before- and an After-AMF file with settings that differ between "
+                               "samples (need at least 4 samples with two or more values of a setting).",
+                   "depth": "No file has images at 4 or more depths (z-stacks).",
+                   }.get(level, "Not enough files or images to correlate (need at least 5).")
+        self.corr_label.setText(txt)
+        t = table
+        rows = pd.DataFrame({
+            "#": np.arange(1, len(t) + 1),
+            "relation": [f"{y}  ↔  {x}" for x, y in zip(t.get("x_label", []), t.get("y_label", []))],
+            "rho": [f"{v:+.2f}" for v in t.get("rho", [])],
+            "strength": t.get("strength", []),
+            "n": [f"{int(v)} {u}" for v, u in zip(t.get("n", []), t.get("unit_of_n", []))],
+            "q": t.get("q", []),
+            "note": [("linked by how it is measured; " if lk else "") + str(e)
+                     for lk, e in zip(t.get("linked", []), t.get("extra", []))]})
+        _fill(self.corr_table, rows, ["#", "Relation", "ρ", "Strength", "n", "q", "Note"])
+        if len(t):
+            self.corr_table.selectRow(0)
+        else:
+            self.corr_fig.clear()
+            self.corr_fig.canvas.draw_idle()
+        if show:
+            self.tabs.setCurrentIndex(self.CORR_TAB)
+
+    def _corr_name(self):
+        r = self._corr_row()
+        return f"correlation_{r['y']}_vs_{r['x']}" if r is not None else "correlation"
+
+    def _corr_row(self):
+        if not self.corr or not len(self.corr["table"]):
+            return None
+        rows = self.corr_table.selectionModel().selectedRows() if self.corr_table.selectionModel() else []
+        i = rows[0].row() if rows else 0
+        return self.corr["table"].iloc[min(i, len(self.corr["table"]) - 1)]
+
+    def draw_correlation(self):
+        fig = self.corr_fig
+        fig.clear()
+        r = self._corr_row()
+        if r is None:
+            fig.canvas.draw_idle()
+            return
+        c, x, y = self.corr, r["x"], r["y"]
+        title = f"ρ = {r['rho']:+.2f} ({r['strength']}), n = {int(r['n'])} {r['unit_of_n']}, q = {r['q']:.2g}"
+
+        def cond_color(v):
+            return style.AFTER if str(v).startswith("After") else style.BEFORE
+
+        if c["level"] in ("settings", "files"):
+            d = c["data"][[x, y] + [k for k in ("sample", "condition", "arm") if k in c["data"]]].copy()
+            d[[x, y]] = d[[x, y]].apply(pd.to_numeric, errors="coerce")
+            d = d.dropna(subset=[x, y])
+            ax = fig.add_subplot(111)
+            if c["level"] == "files" and "condition" in d:
+                for cond, g in d.groupby(d["condition"].astype(str).str.startswith("After")):
+                    ax.scatter(g[x], g[y], s=36, color=style.AFTER if cond else style.BEFORE,
+                               label="after AMF" if cond else "before AMF", edgecolors="white", linewidths=0.5,
+                               zorder=3)
+                ax.legend(fontsize=8, frameon=False)
+            else:
+                ax.scatter(d[x], d[y], s=44, color=style.ACCENT, edgecolors="white", linewidths=0.5, zorder=3)
+                for _, row in d.iterrows():
+                    ax.annotate(str(row.get("sample", "")).split("_")[-1], (row[x], row[y]), fontsize=7,
+                                xytext=(4, 3), textcoords="offset points", color="#555")
+                ax.axhline(0, color="#999", lw=0.8, ls=":")
+            if len(d) >= 3 and d[x].nunique() > 1:
+                k, b0 = np.polyfit(d[x], d[y], 1)
+                xs = np.linspace(d[x].min(), d[x].max(), 50)
+                ax.plot(xs, k * xs + b0, "--", color="#888", lw=1.2, zorder=2)
+            ax.set_xlabel(r["x_label"])
+            ax.set_ylabel(r["y_label"])
+            ax.set_title(title, fontsize=10)
+        elif c["level"] == "tiles":
+            ax = fig.add_subplot(1, 2, 1)
+            t = c["sel"][[x, y, "condition"]].copy()
+            t[[x, y]] = t[[x, y]].apply(pd.to_numeric, errors="coerce")
+            t = t.dropna(subset=[x, y])
+            if len(t) > 4000:
+                t = t.sample(4000, random_state=0)
+            ax.scatter(t[x], t[y], s=4, alpha=0.35, c=[cond_color(v) for v in t["condition"]], lw=0)
+            ax.set_xlabel(r["x_label"])
+            ax.set_ylabel(r["y_label"])
+            ax.set_title("tiles (up to 4000; blue before, orange after)", fontsize=9)
+            for axis, col in (("x", x), ("y", y)):
+                if PT.FEAT.get(col, (0, 0, 0, False))[3]:
+                    getattr(ax, f"set_{axis}scale")("log")
+            ax2 = fig.add_subplot(1, 2, 2)
+            v = np.asarray(c["data"].get((x, y), c["data"].get((y, x), [])))
+            ax2.hist(v, bins=np.linspace(-1, 1, 21), color=style.ACCENT, alpha=0.85)
+            ax2.axvline(np.median(v) if len(v) else 0, color=style.AFTER, lw=2)
+            ax2.axvline(0, color="#999", lw=0.8, ls=":")
+            ax2.set_xlabel("ρ inside each image")
+            ax2.set_ylabel("images")
+            ax2.set_title(title, fontsize=9)
+        else:                                            # depth
+            img, per = c["data"]
+            ax = fig.add_subplot(111)
+            seen = set()
+            for fname, _, cond in per.get(y, []):
+                g = img[img["file"] == fname].sort_values("z_um")
+                after = str(cond).startswith("After")
+                lab = ("after AMF" if after else "before AMF") if after not in seen else None
+                seen.add(after)
+                ax.plot(g["z_um"], g[y], "-o", ms=3, lw=1, alpha=0.7, color=style.AFTER if after else style.BEFORE,
+                        label=lab)
+            ax.set_xlabel(r["x_label"])
+            ax.set_ylabel(r["y_label"])
+            ax.set_title(title + " (each line = one z-stack)", fontsize=10)
+            if seen:
+                ax.legend(fontsize=8, frameon=False)
+        fig.canvas.draw_idle()
+
     def export(self):
-        if not self.res:
-            QMessageBox.information(self, "Export", "Find tile types first.")
+        if not self.res and not (self.corr and len(self.corr["table"])):
+            QMessageBox.information(self, "Export", "Find tile types or correlations first.")
             return
         p, _ = QFileDialog.getSaveFileName(self, "Export patterns", "tile_patterns.xlsx", "Excel (*.xlsx)")
         if not p:
@@ -315,13 +514,23 @@ class PatternsPage(Page):
         r = self.res
         try:
             with pd.ExcelWriter(p, engine="openpyxl") as xw:
-                r["prof"].to_excel(xw, sheet_name="tile types", index=False)
-                r["shares"].drop(columns=["_tiles_csv"], errors="ignore").to_excel(xw, sheet_name="share per file",
-                                                                                   index=False)
-                r["change"].to_excel(xw, sheet_name="change per sample", index=False)
-                r["used"].drop(columns=["_tiles_csv"], errors="ignore").to_excel(xw, sheet_name="tiles", index=False)
-                pd.DataFrame([("features", ", ".join(r["feats"])), ("method", self.method.currentText()),
-                              ("k", self.k.value()), ("log scale for sizes", self.log_sizes.isChecked()),
+                if r:
+                    r["prof"].to_excel(xw, sheet_name="tile types", index=False)
+                    r["shares"].drop(columns=["_tiles_csv"], errors="ignore").to_excel(
+                        xw, sheet_name="share per file", index=False)
+                    r["change"].to_excel(xw, sheet_name="change per sample", index=False)
+                    r["used"].drop(columns=["_tiles_csv"], errors="ignore").to_excel(xw, sheet_name="tiles",
+                                                                                     index=False)
+                if self.corr and len(self.corr["table"]):
+                    t = self.corr["table"]
+                    t[["y_label", "x_label", "rho", "strength", "n", "unit_of_n", "p", "q", "linked", "extra", "x",
+                       "y"]].rename(columns={"y_label": "metric", "x_label": "with", "unit_of_n": "n counts",
+                                             "extra": "note"}).to_excel(xw, sheet_name="correlations", index=False)
+                pd.DataFrame([("features", ", ".join(r["feats"] if r else self.corr["feats"])),
+                              ("method", self.method.currentText() if r else ""),
+                              ("k", self.k.value() if r else ""),
+                              ("log scale for sizes", self.log_sizes.isChecked()),
+                              ("correlations", self.corr_level.currentText() if self.corr else ""),
                               ("tile tables", "; ".join(self.sources))],
                              columns=["setting", "value"]).to_excel(xw, sheet_name="settings", index=False)
         except Exception as e:
