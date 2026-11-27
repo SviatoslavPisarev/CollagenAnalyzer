@@ -41,11 +41,11 @@ AMF treatment, across samples and across experiments, and makes publication-read
 <a href="#install">1. Installing and starting the app</a><br>
 <a href="#quick">2. Quick start (5 steps)</a><br>
 <a href="#names">3. Naming your files</a><br>
-<a href="#data">4. Page 1 · Data</a><br>
-<a href="#params">5. Page 2 · Parameters and preview</a><br>
-<a href="#outputs">6. Page 3 · Outputs</a><br>
-<a href="#run">7. Page 4 · Run</a><br>
-<a href="#plots">8. Results &amp; Plots: your own graphs</a><br>
+<a href="#data">4. New analysis · Files</a><br>
+<a href="#params">5. New analysis · Settings and preview</a><br>
+<a href="#outputs">6. New analysis · Outputs</a><br>
+<a href="#run">7. New analysis · Run</a><br>
+<a href="#plots">8. Results &amp; plots: your own graphs</a><br>
 <a href="#results">9. What the results contain</a><br>
 <a href="#metrics">10. What the numbers mean</a><br>
 <a href="#good">11. Good practice for comparisons</a><br>
@@ -58,7 +58,8 @@ AMF treatment, across samples and across experiments, and makes publication-read
 <a href="#controls">18. Sham controls and statistics</a><br>
 <a href="#changemap">19. Registration and local change maps</a><br>
 <a href="#physics">20. Nanocage physics (estimate)</a><br>
-<a href="#tests">21. Tests, validation and citing the app</a></p>
+<a href="#tests">21. Tests, validation and citing the app</a><br>
+<a href="#look">22. Day and night look</a></p>
 </div>
 
 <h2 id="install"><a name="install"></a>1. Installing and starting the app</h2>
@@ -108,10 +109,12 @@ Windows: <code>%LOCALAPPDATA%\CollagenAnalyzer</code>), so the app folder can st
 reinstall of the packages, delete that folder and start again.</div>
 
 <h2 id="quick"><a name="quick"></a>2. Quick start (5 steps)</h2>
+<p>Click <b>New analysis</b> in the sidebar. The bar at the top (<i>Files → Settings → Outputs → Run → Results</i>) shows where you
+are; click a step to go back to it.</p>
 <ol>
-<li><b>Data</b> — choose <i>One folder</i> and pick the folder with your .nd2 files (or drag the folder onto the window).
+<li><b>Files</b> — choose <i>One folder</i> and pick the folder with your .nd2 files (or drag the folder onto the window).
 Check the table: date, sample, Before/After AMF and the conditions read from each file name.</li>
-<li><b>Parameters</b> — keep the defaults. Optional but recommended: pick a file in the preview, click <b>Load</b> and check that the
+<li><b>Settings</b> — keep the defaults. Optional but recommended: pick a file in the preview, click <b>Load</b> and check that the
 red fiber mask follows the fibers. For a first, fast look set <i>Analyse every Nth z-slice</i> to 4.</li>
 <li><b>Outputs</b> — keep “Next to the data” and all figures.</li>
 <li><b>Run</b> — click <b>Start analysis</b>. Progress and messages appear live.</li>
@@ -126,7 +129,7 @@ after the first two; parts that are missing are simply left empty.</p>
 <table>
 <tr><th>Part of the name</th><th>Meaning</th><th>Accepted forms</th></tr>
 <tr><td><code>mmddyy_##_</code> (start, required)</td><td>Date and sample number. Files with the same start are one sample and are compared before vs after.</td><td><code>112026_3_</code></td></tr>
-<tr><td><code>AMF</code></td><td>Marks the <b>After AMF</b> file; files without it are <b>Before AMF</b> (the word can be changed on the Parameters page)</td><td><code>_AMF_</code></td></tr>
+<tr><td><code>AMF</code></td><td>Marks the <b>After AMF</b> file; files without it are <b>Before AMF</b> (the word can be changed in the Settings step)</td><td><code>_AMF_</code></td></tr>
 <tr><td><code>sham</code></td><td>Marks the second image of a <b>sham control</b> gel (“After sham”): same handling, transport and waiting time as an AMF gel, but no field. Its change shows the drift from drying and re-imaging (Section 18). Wins over <code>AMF</code> if both appear.</td><td><code>_sham_</code>, <code>_sham3min_</code>, <code>-sham-</code></td></tr>
 <tr><td><code>###Hz</code></td><td>AMF frequency</td><td><code>500Hz</code>, <code>1kHz</code>, <code>1.5kHz</code></td></tr>
 <tr><td>time</td><td>AMF exposure time</td><td><code>3min</code>, <code>1.5min</code>, <code>3min30s</code>, <code>3m30s</code>, <code>90s</code></td></tr>
@@ -144,13 +147,14 @@ after the first two; parts that are missing are simply left empty.</p>
 <tr><td><code>other-…</code></td><td>Free note (use hyphens inside it); not read for anything else</td><td><code>other-dried-edges</code>, <code>other_rep2</code></td></tr>
 <tr><td>last part</td><td>File number shown in legends</td><td><code>..._1013</code> → “(1013)”</td></tr>
 </table>
-<div class="tip">The Data page shows what was read from every name before you run — check it there. Text in the <code>other-</code> note
+<div class="tip">The Files step shows what was read from every name before you run — check it there. Text in the <code>other-</code> note
 is ignored, so <code>other-noAMFcontrol</code> does not make a file “After AMF”.</div>
 
-<h2 id="data" class="newpage"><a name="data"></a>4. Page 1 · Data</h2>
+<h2 id="data" class="newpage"><a name="data"></a>4. New analysis · Files</h2>
 <img class="shot" src="img/data.png" width="880">
-<p class="cap">Data page with two folders. Before/After AMF is colored blue/orange; red dates mean the name does not start with mmddyy_##_.</p>
-<p><b>Choose a mode</b> with the three cards:</p>
+<p class="cap">The Files step. Files of one gel are shown together (shaded bands); the condition is a coloured tag (Before blue,
+After AMF orange, AMF without NCs purple, sham grey). The panel on the right counts files, gels and groups and lists what to check.</p>
+<p><b>Choose a mode</b> with the switch at the top right of the folder box:</p>
 <table>
 <tr><th>Mode</th><th>What it does</th><th>Results</th></tr>
 <tr><td>One file</td><td>A detailed report of a single file</td><td><code>mmddyy_results/&lt;file&gt;/</code>: a figure of every analysed image, slice comparisons, spreadsheet</td></tr>
@@ -159,8 +163,11 @@ is ignored, so <code>other-noAMFcontrol</code> does not make a file “After AMF
 </table>
 <ul>
 <li><b>Choose folder… / Add folder…</b> — or drag files and folders from Finder / Explorer onto the window.</li>
-<li><b>Tick / untick</b> files in the first column to include or skip them. <i>Tick all / Untick all</i> act on the rows shown;
-the filter box finds files by any text in the table (e.g. <code>AMF</code>, <code>0.5 nM</code>, <code>premixed</code>).</li>
+<li><b>Tick / untick</b> files in the first column to include or skip them. The chips above the table show only Before, After AMF,
+Sham or quality-check (⚠) files; the filter box finds files by any text in the table (e.g. <code>AMF</code>, <code>0.5 nM</code>,
+<code>premixed</code>). <i>Tick all shown / Untick all shown</i> act on the rows shown.</li>
+<li><b>Ready to run</b> (right): files ticked, gels, gels per group, and checks — every gel has a Before file, sham gels on every day
+with AMF gels, same pixel size, files the last quality check marked. <i>Skip to Run →</i> keeps the current settings and outputs.</li>
 <li><b>Type</b> and <b>Pixel</b> are read from each file (z-stack with number of slices, time-lapse, single image).</li>
 <li>A yellow box lists problems: names without date/sample, files that cannot be opened, TIFFs without pixel size.</li>
 </ul>
@@ -185,12 +192,12 @@ future files, or to go back to the value from the file name. Select several cell
 <p>Hand-typed values, defaults and added parameters are <b>remembered for future runs</b>. They are used in all titles and
 spreadsheets; added parameters become their own columns (e.g. <code>gel_thickness_um</code>, <code>nc_type</code>). The sheet
 <i>settings</i> records which values were typed by hand for each file (<code>set_by_hand</code>) and which parameters were added
-(<code>user_fields</code>), and the run log lists them. In Results &amp; Plots, numeric added parameters can be used as the x-axis,
+(<code>user_fields</code>), and the run log lists them. In Results &amp; plots, numeric added parameters can be used as the x-axis,
 and all added parameters for colors and grouping.</p>
 <div class="tip">Typed values replace what the file name says, so a mistyped file name can be fixed without renaming the file.
 Renaming the files is still the most reliable record for the future.</div>
 
-<h2 id="params" class="newpage"><a name="params"></a>5. Page 2 · Parameters and preview</h2>
+<h2 id="params" class="newpage"><a name="params"></a>5. New analysis · Settings and preview</h2>
 <img class="shot" src="img/params.png" width="880">
 <p class="cap">Left: settings (hover any field for help). Right: preview of one image with the fiber mask, orientation and pore-size maps.</p>
 
@@ -241,7 +248,7 @@ y down from the top-left corner) if the preview shows the yellow circle in the w
 <i>Load preset…</i> restores them. <i>Reset to defaults</i> returns to the standard values. Every value used is also written
 to the results spreadsheet (sheet “settings”), so each run can be reproduced.</p>
 
-<h2 id="outputs" class="newpage"><a name="outputs"></a>6. Page 3 · Outputs</h2>
+<h2 id="outputs" class="newpage"><a name="outputs"></a>6. New analysis · Outputs</h2>
 <img class="shot" src="img/outputs.png" width="880">
 <ul>
 <li><b>Where to save:</b> next to the data (a folder <code>mmddyy_results</code> inside each data folder) or in a folder you choose
@@ -250,7 +257,7 @@ choose another folder to keep runs with different settings apart.</li>
 <li><b>Level of detail:</b> <i>Detailed</i> makes a folder per file with its own figures and spreadsheet; <i>Compact</i> makes only the
 comparisons and one figure per file (faster, fewer files).</li>
 <li><b>Figures:</b> tick the figures you want (table below). <i>Only comparisons</i> skips the per-file figures. The spreadsheets are always
-written; any graph can also be made later on the Results &amp; Plots page.</li>
+written; any graph can also be made later on the Results &amp; plots page.</li>
 <li><b>Format:</b> PNG (default), PDF or SVG (vector, for papers and editing in Illustrator/Inkscape), TIFF. Resolution: default
 (90–120 dpi, fast) or e.g. 300 dpi for print.</li>
 </ul>
@@ -263,7 +270,7 @@ written; any graph can also be made later on the Results &amp; Plots page.</li>
 <tr><td>Per date (side by side)</td><td>One panel per sample: density, pore size, angle, pore-size, fiber-size and fiber-length distributions.</td></tr>
 </table>
 
-<h2 id="run" class="newpage"><a name="run"></a>7. Page 4 · Run</h2>
+<h2 id="run" class="newpage"><a name="run"></a>7. New analysis · Run</h2>
 <img class="shot" src="img/run_done.png" width="880">
 <ul>
 <li>The summary shows the number of files and images and the main settings. Problems (no files ticked, missing TIFF pixel size,
@@ -274,13 +281,13 @@ no results folder) appear in yellow and must be fixed before <b>Start analysis</
 files, conditions that differ within a sample). <i>Save log…</i> keeps it as a text file.</li>
 <li><b>Stop</b> ends the run; files already written are kept.</li>
 <li>When finished: <b>Open results folder</b>, <b>Open summary spreadsheet</b>, or <b>Make custom plots</b>. Double-click a line in the list
-to open it. The results are loaded into Results &amp; Plots automatically.</li>
+to open it. The results are loaded into Results &amp; plots automatically.</li>
 <li><b>Copy command line</b> puts the equivalent Terminal command on the clipboard (for your notebook).</li>
 </ul>
 <div class="tip">Timing: about 5–15 s per 1024 × 1024 image per worker. A 69-slice stack with every slice takes a few minutes on a modern
 computer. Use <i>every 4th z-slice</i> for routine screening and every slice for final figures.</div>
 
-<h2 id="plots" class="newpage"><a name="plots"></a>8. Results &amp; Plots: your own graphs</h2>
+<h2 id="plots" class="newpage"><a name="plots"></a>8. Results &amp; plots: your own graphs</h2>
 <img class="shot" src="img/plot_perfile.png" width="880">
 <p class="cap">Pore size per file, one panel per sample, every analysed image shown as a dot.</p>
 <p>This page combines <b>any files from any runs</b> in one graph. Work from top to bottom on the left; the graph updates as you change things.</p>
@@ -292,10 +299,12 @@ results are loaded automatically. <i>Clear</i> empties the list.</p>
 <p>Files are grouped by sample. Tick the files to show; ticking a sample ticks all its files. The filter box shows only matching
 files (e.g. <code>500 Hz</code>, <code>0.5 nM</code>); <i>All / None</i> act on the files shown.</p>
 <h3>3. What to plot</h3>
+<p>Pick the graph with the six tiles (depth / time, per file, change per gel, by group + stats, vs setting, distribution), then
+the metric and options below them.</p>
 <table>
 <tr><th>Graph</th><th>Use it for</th><th>Options</th></tr>
 <tr><td>Metric vs depth / time</td><td>How a metric changes through the gel or over time; one line per file</td><td>x-axis (depth, time, image number), line style, smoothing over N images</td></tr>
-<tr><td>Metric per file</td><td>Comparing files: bars (mean ± SD/SEM), box plots, violin plots or points</td><td>Show every analysed image as a dot</td></tr>
+<tr><td>Metric per file</td><td>Comparing files: bars (mean ± SD, SEM or 95 % CI), box plots, violin plots or points</td><td>Individual images as dots: Style → Bars &amp; points</td></tr>
 <tr><td>Change after AMF / sham, per sample</td><td>(after − before) / before in % for every sample that has both; sham gels are grey</td><td><i>Subtract the change of the sham gels</i>: each bar minus the mean sham change of the same date</td></tr>
 <tr><td>Change by group with statistics</td><td>One dot per gel, bars = mean ± 95 % CI for each group (NC + AMF, AMF only, sham); p-values and the field-effect comparison below the graph (Section 18)</td><td>% or absolute change; one panel per group value (e.g. AMF frequency)</td></tr>
 <tr><td>Metric vs experimental parameter</td><td>Dose–response style: a metric against NC concentration, collagen, AMF frequency/time/voltage, incubation time</td><td>Points or points joined by lines (per color), log x-axis</td></tr>
@@ -306,17 +315,42 @@ files (e.g. <code>500 Hz</code>, <code>0.5 nM</code>); <i>All / None</i> act on 
 <h3>4. Layout and labels</h3>
 <ul>
 <li><b>Panels:</b> all files on one graph; one panel per file (side by side); or one panel per group — by sample, date, condition,
-NC concentration, NC mixing, collagen or AMF frequency. <i>Panels per row</i> and <i>Same y-axis</i> control the grid.</li>
-<li><b>Colors:</b> before/after (blue/orange, sham grey), group (NC + AMF / AMF only / sham), each file its own color, or by sample, NC concentration, mixing, collagen, AMF
-frequency/time, date (numbers get a color scale).</li>
-<li><b>Legend labels:</b> condition + AMF settings + file number (default), sample + condition, full name, file number, or condition + NC conditions.
-<b>Legend</b> position: automatic, inside, right, below, or none.</li>
-<li><b>Title, axis labels, y range, font size, grid:</b> leave empty for automatic.</li>
+group, NC concentration, NC mixing, collagen or AMF frequency. <i>Panels per row</i> and <i>Same y-axis</i> control the grid.</li>
+<li><b>Colors:</b> before/after (blue/orange, sham grey), group (NC + AMF / AMF only / sham), each file its own color, or by sample, NC
+concentration, mixing, collagen, AMF frequency/time, date (numbers get a color scale).</li>
+<li><b>Legend labels:</b> condition + AMF settings + file number (default), sample + condition, full name, file number, or condition + NC conditions.</li>
+<li><b>Title, x- and y-axis label:</b> type your own, or leave empty for automatic.</li>
 </ul>
-<h3>5. Save</h3>
-<p><b>Save figure…</b> writes PNG, PDF, SVG or TIFF at the chosen resolution; untick <i>automatic</i> size to set the width × height in
-inches (e.g. 3.5 × 2.6 in for a single journal column). <b>Export plotted data (CSV)…</b> saves exactly the numbers in the graph,
-for Prism, Origin or Excel. The toolbar above the graph zooms, pans and resets the view.</p>
+<h3>5. Style</h3>
+<p>Everything about the look of the graph. Pick a ready-made <b>style</b> at the top — <i>Journal figure</i> (Arial 7–8 pt, clean axes,
+colour-blind-safe colours), <i>Slides</i> (large text) or <i>Greyscale print</i> — then adjust it. <b>Save as…</b> keeps your own styles
+(★ in the list) so every figure of a paper looks the same; the last style used is remembered.</p>
+<img class="shot" src="img/plot_style.png" width="880">
+<p class="cap">The Style panel: Text, Bars &amp; points and Axes &amp; colours tabs.</p>
+<table>
+<tr><th>Tab</th><th>Settings</th></tr>
+<tr><td>Text</td><td>Font (any font installed on the computer) and separate sizes in pt for the title, panel titles, axis labels, tick labels,
+legend and the numbers on the graph; bold title; title left / centre / right.</td></tr>
+<tr><td>Labels</td><td>Show or hide the figure title and panel titles; legend inside, right, below, above or none, number of columns,
+frame; x tick labels at 0°, 30°, 45° or 90°; numbers on the graph (bar values, n and p) on or off; <i>Reset label positions</i>.</td></tr>
+<tr><td>Bars &amp; points</td><td>Bar width, opacity and dark outline; error-bar cap size and line width; <b>individual data points</b> on or
+off (images in per-file and depth graphs, gels in the group graph, images at each setting in the parameter graph), their size,
+opacity, sideways spread and colour; line width and marker size.</td></tr>
+<tr><td>Fit</td><td><b>Trend lines</b> for <i>Metric vs experimental parameter</i> (one per colour, fitted to the file means) and
+<i>Metric vs depth / time</i> (one per file): straight line, straight line on log x, or the mean; optional 95 % confidence band;
+equation and R² in the legend (also in the CSV export).</td></tr>
+<tr><td>Axes &amp; colours</td><td>y axis from 0 for bars, log y, clean axes (no top / right lines), grid, tick marks in or out, y and x range;
+palette (app colours, colour-blind safe Okabe–Ito, tab10, greyscale, viridis) and the colours of Before, After AMF, sham and AMF-only
+(click a swatch to change it).</td></tr>
+</table>
+<div class="tip"><b>Move any label with the mouse:</b> drag the title, panel titles, axis labels, the legend or the numbers on the graph to
+where you want them. The positions are kept when you change other settings, until you choose another kind of graph or click
+<i>Reset label positions</i>. (Switch off the zoom / pan buttons of the toolbar first.)</div>
+<h3>6. Save</h3>
+<p><b>Figure size:</b> automatic (fills the window), journal 1, 1.5 or 2 columns, a 16:9 slide, or a custom width × height in inches.
+A fixed size is shown on screen at that size, so the text sizes look as they will on paper. <b>Save figure…</b> writes PNG, PDF, SVG
+or TIFF at the chosen resolution, always on a white background. <b>Export plotted data (CSV)…</b> saves exactly the numbers in
+the graph (and the fit equations), for Prism, Origin or Excel. The toolbar above the graph zooms, pans and resets the view.</p>
 
 <h2 id="results" class="newpage"><a name="results"></a>9. What the results contain</h2>
 <table>
@@ -337,7 +371,7 @@ after aligning, status, and the mean / SD of the local (tile) changes (Section 1
 and its maps (Section 19).</td></tr>
 <tr><td><code>mmddyy_tiles.csv</code></td><td>Per-tile table: the metrics of every tile (default 13 µm) of every analysed image, with its
 position and a dark / blurred flag (Section 14).</td></tr>
-<tr><td><code>mmddyy_distributions.npz</code></td><td>Histograms behind the distribution graphs; used by Results &amp; Plots.</td></tr>
+<tr><td><code>mmddyy_distributions.npz</code></td><td>Histograms behind the distribution graphs; used by Results &amp; plots.</td></tr>
 <tr><td><code>sample_mmddyy_##.png</code></td><td>Before vs after comparison of one sample.</td></tr>
 <tr><td><code>mmddyy_fiber_density.png</code> etc.</td><td>Per-date figures, one panel per sample.</td></tr>
 <tr><td><code>&lt;file name&gt;/</code></td><td>Per-file folder (detailed mode): per-file figure, slice comparison, <code>slices/</code>, the file's own spreadsheet.</td></tr>
@@ -384,13 +418,13 @@ variation with depth, not uncertainty of the sample mean. Use several gels/field
 <tr><td>Windows: “Windows protected your PC”</td><td>More info → Run anyway.</td></tr>
 <tr><td>Launcher: “Python 3.9 or newer is needed”</td><td>Install Python from python.org (Windows: tick “Add python.exe to PATH”), then start again.</td></tr>
 <tr><td>Launcher: installing packages failed</td><td>Check the internet connection (some university networks need the VPN off/on), then start again. To start completely fresh, delete the CollagenAnalyzer folder named in section 1.</td></tr>
-<tr><td>File shows “cannot read” on the Data page</td><td>The file is damaged, still copying, or an iCloud placeholder — in Finder right-click the folder → <i>Keep Downloaded</i>.</td></tr>
+<tr><td>File shows “cannot read” in the Files step</td><td>The file is damaged, still copying, or an iCloud placeholder — in Finder right-click the folder → <i>Keep Downloaded</i>.</td></tr>
 <tr><td>“TIFF files have no pixel size”</td><td>Parameters → File names and TIFF calibration → tick Pixel size and enter it (µm).</td></tr>
 <tr><td>Fiber mask misses fibers / fills background</td><td>Preview → move the threshold → Use as fixed threshold. For thick bundles add ridge scales 0.3, 0.4.</td></tr>
 <tr><td>Yellow hotspot circle is wrong</td><td>Parameters → Manual circle (x, y, r in pixels) or No hotspot.</td></tr>
 <tr><td>Run stops with an error / computer becomes slow</td><td>Lower Parallel workers (e.g. 2). Read the last lines of the log; Save log… and send it with the file name if you need help.</td></tr>
 <tr><td>Distribution graphs say “no distribution data”</td><td>The spreadsheet comes from an older version of the script; run the analysis again with the app.</td></tr>
-<tr><td>A value from the file name is wrong or missing</td><td>Data page: double-click the cell and type the value (Section 4).</td></tr>
+<tr><td>A value from the file name is wrong or missing</td><td>Files step: double-click the cell and type the value (Section 4).</td></tr>
 <tr><td>A sample is not compared before vs after</td><td>Both file names must start with the same <code>mmddyy_##_</code> and only the after file may contain “AMF”.</td></tr>
 </table>
 
@@ -404,9 +438,9 @@ variation with depth, not uncertainty of the sample mean. Use several gels/field
 <code>--no-tiles</code> skips the per-tile table; <code>--qc-model FILE</code> applies a trained quality-check model.</p>
 
 <h2 id="qc" class="newpage"><a name="qc"></a>14. Quality check and the per-tile table</h2>
-<p>Every run checks each file and writes the result to the <b>quality</b> sheet, the <b>QC</b> column on the Data page
-(<i>ok</i> or <i>⚠ check</i>; hover for the reasons), warnings in the Run log and a ⚠ in the Results &amp; Plots file list.
-<b>Untick QC ‘check’</b> on the Data page leaves those files out of the next run.</p>
+<p>Every run checks each file and writes the result to the <b>quality</b> sheet, the <b>QC</b> column in the Files step
+(<i>ok</i> or <i>⚠ check</i>; hover for the reasons), warnings in the Run log and a ⚠ in the Results &amp; plots file list.
+<b>Untick QC ‘check’</b> in the Files step leaves those files out of the next run.</p>
 <table>
 <tr><th>Built-in check</th><th>Flagged when</th></tr>
 <tr><td>Blur / focus</td><td>median sharpness (variance of the Laplacian) below 0.5 × the median of the files in the folder</td></tr>
@@ -424,19 +458,19 @@ the same folder, so a folder of only one or two files cannot be judged on those.
 <code>_other-bubble_</code>, <code>_other-blurry_</code>… mean <i>problem</i>; anything else <i>ok</i>); change any label, or set
 <i>skip</i>. <b>Train model</b> fits a random forest to the quality numbers and reports its cross-validated accuracy and the
 numbers it relies on most; red entries in the last column are files where it disagrees with your label (worth a second look).
-<b>Save model…</b> stores it and switches it on for new runs (Outputs page). Aim for at least 10 problem and 10 ok files.
+<b>Save model…</b> stores it and switches it on for new runs (Outputs step). Aim for at least 10 problem and 10 ok files.
 Only open model files you made yourself.</p>
 <h3>Per-tile table</h3>
 <p><code>mmddyy_tiles.csv</code> has one row per tile: file, image (t, z), conditions, tile position (<code>x_um</code>, <code>y_um</code>),
 fiber area fraction, length density, pore and fiber size, order parameter S, mean angle, coherency, reflectance, sharpness and
 a <code>tile_flag</code> (dark / blurred). It is the input for finding local remodeling patterns (clustering) and can be opened in
 Excel, Prism or Python. Tiles less than 80 % inside the analysed area (image edge, hotspot) are left out. Switch it off on
-the Outputs page.</p>
+the Outputs step.</p>
 
 <h2 id="planner" class="newpage"><a name="planner"></a>15. Experiment Planner</h2>
 <p>The planner learns how your settings (AMF frequency, time, voltage, NC concentration, premixed / incubated, incubation time,
 collagen) change one structure metric, and suggests which conditions to test next — so that fewer gels are needed than for a
-full grid. Results of each run are added automatically; older results can be loaded like on Results &amp; Plots.</p>
+full grid. Results of each run are added automatically; older results can be loaded like on Results &amp; plots.</p>
 <p><b>Experiments.</b> Each After-AMF file is paired with the Before-AMF file(s) of the same sample (same <code>mmddyy_##_</code>,
 same results folder); the response is <i>after − before</i> or the <i>% change</i> of the chosen metric (file means). Pairing
 within a sample removes most of the gel-to-gel variation. Files the quality check marked <i>check</i> are left out (untick to
@@ -479,14 +513,14 @@ and after side by side. <i>Tile space</i>: every tile as a dot (PCA or t-SNE), c
 fibers, uneven brightness, nanocage aggregates or other bright blobs that are not fibers — a <b>trained fiber model</b> can
 do better: a random-forest pixel classifier that learns from strokes you paint, from several filter responses of the
 flattened image (smoothed intensity, Hessian ridge/blob shape, edges, local contrast) at scales of 0.1–1.6 µm.</p>
-<p><b>Paint.</b> On the Fiber model page load an image (files ticked on the Data page, any image of a stack), choose
+<p><b>Paint.</b> On the Fiber model page load an image (files ticked in the Files step, any image of a stack), choose
 <i>Fiber</i> [F] or <i>Background</i> [B] and paint thin strokes: along the middle of clear fibers, in the gaps, and on the
 hard places. Wheel = zoom, right-drag = move, Ctrl+Z = undo, [ and ] = brush size. Paint several images: different
 samples, depths, before and after AMF. Strokes are kept between sessions (Save / Load strokes to share them).</p>
 <p><b>Train and check.</b> <i>Train on all painted images</i> fits the model (seconds). Show the <i>model mask</i> (green)
 and compare with the <i>ridge + Otsu mask</i> (yellow); move the cutoff. Paint corrections where the model is wrong and
 train again. The out-of-bag accuracy is measured on the painted pixels only — judge the mask on images you did not paint.</p>
-<p><b>Use.</b> <i>Save model and use it</i> stores the model and selects <b>Trained fiber model</b> on the Parameters page
+<p><b>Use.</b> <i>Save model and use it</i> stores the model and selects <b>Trained fiber model</b> in the Settings step
 (Fiber threshold), with the cutoff you chose; the preview there then shows the model mask. Every metric is computed from this
 mask as before. The settings sheet records the model and the ±10 % QC columns move the cutoff. Analyse every file you
 compare with the same model, and keep the background flattening setting the model was trained with. A model takes about
@@ -509,6 +543,9 @@ never counted as replicates. For each group: number of gels, mean, SD, 95 % conf
 against 0 (t-test — the same as a paired t-test of before vs after — and the Wilcoxon signed-rank test). Between groups: difference of
 means with a 95 % CI, Welch's t-test, Mann–Whitney U and the effect size Hedges' g; p-values are Holm-adjusted within each metric
 (<code>_holm</code> columns).</p>
+<img class="shot" src="img/plot_stats.png" width="880">
+<p class="cap">Change by group with statistics: one dot per gel, bars = mean ± 95 % CI; the cards below the graph give the
+field-effect and NC-effect comparisons.</p>
 <div class="tip"><b>Which p-value shows a field effect?</b> The comparison <i>NC + AMF vs sham</i> (sheet <b>arm comparisons</b>, or the
 note under <i>Change by group with statistics</i>). Do not test the control-corrected values against 0: the correction ignores the
 uncertainty of the sham mean.</div>
@@ -537,7 +574,7 @@ before, magenta after; white where they agree) and maps of the change in alignme
 <div class="tip">Where the nanocages are can be imaged too (fluorescent label or their own reflectance): with the tile positions in
 <code>mmddyy_tile_changes.csv</code> the local change can then be related to the local NC density — the most direct evidence that the
 NCs cause the remodeling.</div>
-<p>Turn the figure off on the Outputs page (<i>Registered before/after and local change maps</i>). Without the tile table
+<p>Turn the figure off on the Outputs step (<i>Registered before/after and local change maps</i>). Without the tile table
 (<code>--no-tiles</code>) only the shift and similarity are reported.</p>
 
 <h2 id="physics" class="newpage"><a name="physics"></a>20. Nanocage physics (estimate)</h2>
@@ -563,5 +600,12 @@ distribution with a known order parameter S and mean angle. The measured S and a
 alignment, and fiber density must rise (and pore size fall) with the number of fibers. The same generator can make test images
 for method validation in a paper. Run them yourself with <code>pip install pytest</code> and <code>python -m pytest tests</code>.</p>
 <p>To cite the app, use <code>CITATION.cff</code> (GitHub shows “Cite this repository”). A release archived on Zenodo gets a DOI.</p>
+
+<h2 id="look" class="newpage"><a name="look"></a>22. Day and night look</h2>
+<img class="shot" src="img/night.png" width="880">
+<p class="cap">The night look, for dark rooms (e.g. next to the confocal).</p>
+<p><b>Night mode</b> at the bottom of the sidebar switches the whole app to a dark look; <b>Day mode</b> switches back. The choice is
+remembered. Graphs on screen follow the look, but <b>Save figure…</b> always saves them on a white background with dark text, ready
+for papers and slides. The figures a run writes are not affected.</p>
 </body>
 </html>

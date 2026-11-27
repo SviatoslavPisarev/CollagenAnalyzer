@@ -7,9 +7,10 @@ import numpy as np
 import pandas as pd
 from PySide6.QtCore import Qt, QTimer, QSettings
 from PySide6.QtGui import QColor, QIcon, QPixmap
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox,
-                               QHBoxLayout, QLabel, QLineEdit, QMessageBox, QScrollArea, QSpinBox, QSplitter,
-                               QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QHeaderView, QSizePolicy)
+from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QFrame,
+                               QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
+                               QScrollArea, QSpinBox, QSplitter, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+                               QHeaderView, QSizePolicy)
 
 import matplotlib
 matplotlib.use("QtAgg")
@@ -19,7 +20,10 @@ import matplotlib.colors as mcolors
 
 import collagen_core as core
 import gelstats as GS
+from .plot_style import (StylePanel, DragLabels, rc, cond_colors, fit_line, PALETTES, NUMERIC_CMAP, FIG_SIZES,
+                         register_app_font)
 from .widgets import Page, button, hint, hbox
+from .widgets import ThemedCanvas
 from . import style
 
 METRICS = [
@@ -75,6 +79,8 @@ PLOT_TYPES = [
     ("param", "Metric vs experimental parameter (NC conc., AMF …)"),
     ("dist", "Distribution (pore size, fiber size, length, angle)"),
 ]
+TILES = [("series", "Depth / time", "lines"), ("perfile", "Per file", "bars"), ("change", "Change per gel", "delta"),
+         ("stats", "By group + stats", "groups"), ("param", "Vs setting", "scatter"), ("dist", "Distribution", "dist")]
 DISTS = [("lt", "Pore size (local thickness, area-weighted)"), ("fib", "Fiber size (local thickness)"),
          ("seg", "Fiber segment length"), ("ang", "Fiber angle (rose plot)")]
 TAB = ["#3b6fb6", "#d9622b", "#2a9d5c", "#8e44ad", "#c0392b", "#7f8c8d", "#e0a800", "#17a2b8", "#6d4c41", "#ad1457"]
@@ -168,7 +174,7 @@ class ResultsStore:
 
 class PlotsPage(Page):
     def __init__(self, parent=None):
-        super().__init__("Results & Plots", "Load result spreadsheets (mmddyy_summary.xlsx or summary.xlsx) and "
+        super().__init__("Results & plots", "Load result spreadsheets (mmddyy_summary.xlsx or summary.xlsx) and "
                          "combine any files in your own graphs. Results of a run are loaded automatically.",
                          scroll=False)
         self.store = ResultsStore()
@@ -218,12 +224,28 @@ class PlotsPage(Page):
 
         g = QGroupBox("3. What to plot")
         f = QFormLayout(g)
+        tiles = QWidget()
+        tg = QGridLayout(tiles)
+        tg.setContentsMargins(0, 0, 0, 4)
+        tg.setSpacing(8)
+        self.tiles, grp = {}, QButtonGroup(self)
+        for i, (k, t, ic) in enumerate(TILES):
+            b = QPushButton(" " + t)
+            b.setObjectName("tile")
+            b.setCheckable(True)
+            b.setCursor(Qt.PointingHandCursor)
+            b.setToolTip(dict(PLOT_TYPES)[k])
+            b.clicked.connect(lambda _=False, key=k: self.ptype.setCurrentIndex(self.ptype.findData(key)))
+            grp.addButton(b)
+            tg.addWidget(b, i // 2, i % 2)
+            self.tiles[k] = (b, ic)
+        f.addRow(tiles)
         self.ptype = QComboBox()
         for k, t in PLOT_TYPES:
             self.ptype.addItem(t, k)
         f.addRow("Graph", self.ptype)
-        self.metric = QComboBox()
-        f.addRow("Metric", self.metric)
+        self.metric_cb = QComboBox()
+        f.addRow("Metric", self.metric_cb)
         self.metric_row = f.rowCount() - 1
         self.dist = QComboBox()
         for k, t in DISTS:
@@ -234,7 +256,7 @@ class PlotsPage(Page):
         self.style_ = QComboBox()
         f.addRow("Style", self.style_)
         self.err = QComboBox()
-        self.err.addItems(["SD over images", "SEM over images", "No error bars"])
+        self.err.addItems(["SD over images", "SEM over images", "No error bars", "95 % CI of the mean"])
         f.addRow("Error bars", self.err)
         self.smooth = QSpinBox()
         self.smooth.setRange(1, 51)
@@ -242,8 +264,6 @@ class PlotsPage(Page):
         self.smooth.setToolTip("Moving average over this many neighbouring images (1 = none). Only for lines vs "
                                "depth / time.")
         f.addRow("Smoothing (images)", self.smooth)
-        self.points = QCheckBox("Show every analysed image as a dot")
-        f.addRow("", self.points)
         self.logx = QCheckBox("Logarithmic x-axis")
         f.addRow("", self.logx)
         self.sub_sham = QCheckBox("Subtract the change of the sham gels (same date)")
@@ -280,10 +300,6 @@ class PlotsPage(Page):
         for k, t in LABELS:
             self.label_by.addItem(t, k)
         f.addRow("Legend labels", self.label_by)
-        self.legend_pos = QComboBox()
-        self.legend_pos.addItems(["Automatic", "Inside each graph", "Right of the graphs", "Below the graphs",
-                                  "No legend"])
-        f.addRow("Legend", self.legend_pos)
         self.title = QLineEdit()
         self.title.setPlaceholderText("automatic")
         f.addRow("Title", self.title)
@@ -293,25 +309,30 @@ class PlotsPage(Page):
         self.ylabel = QLineEdit()
         self.ylabel.setPlaceholderText("automatic")
         f.addRow("y-axis label", self.ylabel)
-        self.ymin = QLineEdit(); self.ymin.setPlaceholderText("auto")
-        self.ymax = QLineEdit(); self.ymax.setPlaceholderText("auto")
-        f.addRow("y range", hbox(self.ymin, QLabel("to"), self.ymax, stretch_end=False))
-        self.font = QSpinBox()
-        self.font.setRange(6, 24)
-        self.font.setValue(10)
-        f.addRow("Font size", self.font)
-        self.grid = QCheckBox("Grid lines")
-        self.grid.setChecked(True)
-        f.addRow("", self.grid)
         cl.addWidget(g)
 
-        g = QGroupBox("5. Save")
+        g = QGroupBox("5. Style")
+        gl = QVBoxLayout(g)
+        register_app_font()
+        self.style_panel = StylePanel()
+        gl.addWidget(self.style_panel)
+        cl.addWidget(g)
+
+        g = QGroupBox("6. Save")
         f = QFormLayout(g)
+        self.size_preset = QComboBox()
+        for k, t, _ in FIG_SIZES:
+            self.size_preset.addItem(t, k)
+        self.size_preset.setToolTip("Figure size on screen and when saved; text sizes stay as set under Style")
+        f.addRow("Figure size", self.size_preset)
         self.fig_w = QDoubleSpinBox(); self.fig_w.setRange(2, 40); self.fig_w.setValue(8); self.fig_w.setSuffix(" in")
         self.fig_h = QDoubleSpinBox(); self.fig_h.setRange(2, 40); self.fig_h.setValue(5); self.fig_h.setSuffix(" in")
         self.auto_size = QCheckBox("automatic")
         self.auto_size.setChecked(True)
-        f.addRow("Size (w × h)", hbox(self.fig_w, QLabel("×"), self.fig_h, self.auto_size, stretch_end=False))
+        self.auto_size.hide()
+        self.size_row = hbox(self.fig_w, QLabel("×"), self.fig_h, stretch_end=False)
+        f.addRow("Width × height", self.size_row)
+        self.size_preset.currentIndexChanged.connect(self._size_preset)
         self.dpi = QSpinBox(); self.dpi.setRange(50, 1200); self.dpi.setValue(300); self.dpi.setSuffix(" dpi")
         f.addRow("Resolution", self.dpi)
         f.addRow(hbox(button("Save figure…", "primary", slot=self.save_figure),
@@ -330,11 +351,18 @@ class PlotsPage(Page):
         rl = QVBoxLayout(right)
         rl.setContentsMargins(8, 0, 0, 0)
         self.fig = Figure(figsize=(8, 5), layout="constrained")
-        self.canvas = FigureCanvasQTAgg(self.fig)
+        self.canvas = ThemedCanvas(self.fig)
         self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.toolbar = NavigationToolbar2QT(self.canvas, right)
         rl.addWidget(self.toolbar)
         rl.addWidget(self.canvas, 1)
+        self._right_lay = rl
+        self.cards = QWidget()
+        self.cards_lay = QHBoxLayout(self.cards)
+        self.cards_lay.setContentsMargins(0, 6, 0, 0)
+        self.cards_lay.setSpacing(10)
+        self.cards.hide()
+        rl.addWidget(self.cards)
         self.note = hint("")
         rl.addWidget(self.note)
         split.addWidget(right)
@@ -343,15 +371,22 @@ class PlotsPage(Page):
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self.redraw)
-        for w in (self.ptype, self.metric, self.dist, self.xaxis, self.style_, self.err, self.layout_, self.group_by,
-                  self.color_by, self.label_by, self.legend_pos):
+        for w in (self.ptype, self.metric_cb, self.dist, self.xaxis, self.style_, self.err, self.layout_, self.group_by,
+                  self.color_by, self.label_by):
             w.currentIndexChanged.connect(self._controls_changed)
-        for w in (self.smooth, self.ncols, self.font, self.fig_w, self.fig_h):
+        for w in (self.smooth, self.ncols, self.fig_w, self.fig_h):
             w.valueChanged.connect(self._schedule)
-        for w in (self.points, self.logx, self.share_y, self.grid, self.auto_size, self.sub_sham):
+        for w in (self.fig_w, self.fig_h):
+            w.valueChanged.connect(self._fit_canvas)
+        for w in (self.logx, self.share_y, self.auto_size, self.sub_sham):
             w.toggled.connect(self._schedule)
-        for w in (self.title, self.xlabel, self.ylabel, self.ymin, self.ymax):
+        for w in (self.title, self.xlabel, self.ylabel):
             w.textChanged.connect(self._schedule)
+        self.drag = DragLabels(self.canvas, busy=lambda: bool(str(getattr(self.toolbar, "mode", "") or "")))
+        self.style_panel.changed.connect(self._schedule)
+        self.style_panel.reset_positions.connect(lambda: (self.drag.reset(), self._schedule()))
+        self._last_ptype = None
+        self._size_preset()
         self._fill_metric()
         self._controls_changed()
 
@@ -413,6 +448,8 @@ class PlotsPage(Page):
     def _fill_tree(self):
         self.tree.blockSignals(True)
         old = self._ticked_set() if self.tree.topLevelItemCount() else None
+        known = set(getattr(self, "_known", set()))         # files shown before: keep their tick; new ones ticked
+        self._known = set(self.store.info)
         self.tree.clear()
         groups = {}
         for u, r in self.store.info.items():
@@ -433,7 +470,7 @@ class PlotsPage(Page):
                     it.setForeground(0, QColor(style.WARN))
                     it.setToolTip(0, f"{u}\nQuality check: {r.get('qc_flags')}")
                 it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
-                it.setCheckState(0, Qt.Checked if (old is None or u in old) else Qt.Unchecked)
+                it.setCheckState(0, Qt.Checked if (old is None or u in old or u not in known) else Qt.Unchecked)
                 it.setForeground(1, QColor(style.AFTER if r["condition"] == "After AMF" else
                                            style.SHAM if GS.is_sham(r["condition"]) else style.BEFORE))
                 top.addChild(it)
@@ -490,22 +527,22 @@ class PlotsPage(Page):
 
     # ------------------------------------------------------------------ controls
     def _fill_metric(self):
-        cur = self.metric.currentData()
-        self.metric.blockSignals(True)
-        self.metric.clear()
+        cur = self.metric_cb.currentData()
+        self.metric_cb.blockSignals(True)
+        self.metric_cb.clear()
         cols = set(self.store.per.columns) if not self.store.per.empty else None
         for k, t in METRICS:
             if cols is None or k in cols:
-                self.metric.addItem(t, k)
+                self.metric_cb.addItem(t, k)
         if cols is not None:
             known = {k for k, _ in METRICS} | set(core.LABEL_COLS) | {"uid", "_src"} | set(self.store.user_fields)
             for c in sorted(cols - known):
                 if not c.startswith(("meta_", "slice_", "set_", "file_", "results_folder", "folder")) \
                         and pd.api.types.is_numeric_dtype(self.store.per[c]):
-                    self.metric.addItem(f"(other) {c}", c)
-        i = self.metric.findData(cur)
-        self.metric.setCurrentIndex(max(i, 0))
-        self.metric.blockSignals(False)
+                    self.metric_cb.addItem(f"(other) {c}", c)
+        i = self.metric_cb.findData(cur)
+        self.metric_cb.setCurrentIndex(max(i, 0))
+        self.metric_cb.blockSignals(False)
 
     def _controls_changed(self, *_):
         t = self.ptype.currentData()
@@ -543,16 +580,21 @@ class PlotsPage(Page):
             combo.setCurrentIndex(max(i, 0))
         self.xaxis.blockSignals(False)
         self.style_.blockSignals(False)
+        for k, (b, ic) in self.tiles.items():
+            b.setChecked(k == t)
+            b.setIcon(style.icon(ic, style.ACCENT_TEXT if k == t else style.TEXT2, 18))
         f = self.form3
+        f.setRowVisible(self.ptype, False)
         vis = dict(metric=t != "dist", dist=t == "dist", xaxis=t in ("series", "param"), style=True,
-                   err=t in ("perfile", "param", "series"), smooth=t == "series", points=t in ("perfile", "series"),
+                   err=t in ("perfile", "param", "series"), smooth=t == "series",
                    logx=t == "param", sub_sham=t == "change")
-        for w, on in [(self.metric, vis["metric"]), (self.dist, vis["dist"]), (self.xaxis, vis["xaxis"]),
+        for w, on in [(self.metric_cb, vis["metric"]), (self.dist, vis["dist"]), (self.xaxis, vis["xaxis"]),
                       (self.style_, vis["style"]), (self.err, vis["err"]), (self.smooth, vis["smooth"]),
-                      (self.points, vis["points"]), (self.logx, vis["logx"]), (self.sub_sham, vis["sub_sham"])]:
+                      (self.logx, vis["logx"]), (self.sub_sham, vis["sub_sham"])]:
             f.setRowVisible(w, on)
-        self.points.setText("Show every analysed image as a dot" if t == "perfile" else
-                            "Show the unsmoothed values too")
+        if t != self._last_ptype:              # a new kind of graph: earlier label moves no longer fit
+            self.drag.reset()
+            self._last_ptype = t
         self.err.setItemText(0, "SD over images" if t != "param" else "SD over images of each file")
         self.group_by.setEnabled(self.layout_.currentData() == "group")
         self._schedule()
@@ -600,11 +642,15 @@ class PlotsPage(Page):
     def colors(self, files):
         key = self.color_by.currentData()
         info = self.store.info
+        S = self.S
+        cb, ca, cs, cn = cond_colors(S)
+        tab = PALETTES.get(S["palette"], TAB)
         if key == "condition":
             out, used, k = {}, set(), 0
             for u in files:
                 cnd = info[u]["condition"]
-                c = style.AFTER if cnd == "After AMF" else style.SHAM if GS.is_sham(cnd) else style.BEFORE
+                c = (cs if GS.is_sham(cnd) else cn if str(info[u].get("arm", "")).startswith("AMF only") else ca) \
+                    if str(cnd).startswith("After") else cb
                 tag = (info[u]["sample"], c)
                 if tag in used:
                     c = core.EXTRA_COLORS[k % len(core.EXTRA_COLORS)]; k += 1
@@ -612,19 +658,26 @@ class PlotsPage(Page):
                 out[u] = c
             return out
         if key == "file":
-            return {u: TAB[i % len(TAB)] for i, u in enumerate(files)}
+            return {u: tab[i % len(tab)] for i, u in enumerate(files)}
         if key == "arm":
             cats = list(dict.fromkeys(str(info[u].get("arm") or "") for u in files))
-            return {u: GS.ARM_COLORS.get(str(info[u].get("arm")), TAB[cats.index(str(info[u].get("arm") or "")) % len(TAB)])
+            return {u: self.arm_color(info[u].get("arm")) or tab[cats.index(str(info[u].get("arm") or "")) % len(tab)]
                     for u in files}
         vals = [info[u].get(key) for u in files]
         num = [v for v in vals if isinstance(v, (int, float, np.number)) and pd.notna(v)]
         if key not in ("sample", "date", "nc_mixing") and len(num) == len(vals) and len(set(num)) > 1:
             lo, hi = min(num), max(num)
-            cmap = matplotlib.colormaps["viridis"]
+            cmap = matplotlib.colormaps[NUMERIC_CMAP.get(S["palette"], "viridis")]
             return {u: mcolors.to_hex(cmap(0.1 + 0.8 * (v - lo) / (hi - lo))) for u, v in zip(files, vals)}
         cats = list(dict.fromkeys(str(v) for v in vals))
-        return {u: TAB[cats.index(str(v)) % len(TAB)] for u, v in zip(files, vals)}
+        return {u: tab[cats.index(str(v)) % len(tab)] for u, v in zip(files, vals)}
+
+    def arm_color(self, arm):
+        """Graph colour of a group (NC + AMF, AMF only, sham …) from the style's condition colours."""
+        cb, ca, cs, cn = cond_colors(self.S)
+        a = str(arm or "")
+        return ca if a.startswith("NC + AMF") else cn if a.startswith("AMF only") else cs if a.startswith("sham") \
+            else None
 
     def groups(self, files):
         mode = self.layout_.currentData()
@@ -653,6 +706,7 @@ class PlotsPage(Page):
             a = self.fig.add_subplot(nrows, ncols, i + 1, sharey=share, **kw)
             first = first or a
             axs.append(a)
+        self._axs = axs
         if not self.auto_size.isChecked():
             self.fig.set_size_inches(self.fig_w.value(), self.fig_h.value())
         return axs
@@ -660,66 +714,228 @@ class PlotsPage(Page):
     def _err(self, vals):
         v = np.asarray(vals, float)
         v = v[np.isfinite(v)]
-        if self.err.currentIndex() == 2 or v.size < 2:
+        k = self.err.currentIndex()
+        if k == 2 or v.size < 2:
             return 0.0
         sd = float(np.std(v, ddof=1))
-        return sd / np.sqrt(v.size) if self.err.currentIndex() == 1 else sd
+        if k == 1:
+            return sd / np.sqrt(v.size)
+        if k == 3:
+            from scipy import stats
+            return float(stats.t.ppf(0.975, v.size - 1) * sd / np.sqrt(v.size))
+        return sd
 
-    def _finish(self, axs, xlabel, ylabel, title):
-        fs = self.font.value()
+    def _size_preset(self, *_):
+        k = self.size_preset.currentData()
+        size = dict((a, c) for a, _, c in FIG_SIZES).get(k)
+        self.auto_size.setChecked(k == "auto")
+        self.size_row.setEnabled(k == "custom")
+        if size:
+            for w, v in zip((self.fig_w, self.fig_h), size):
+                w.blockSignals(True); w.setValue(v); w.blockSignals(False)
+        self._fit_canvas()
+        self._schedule()
+
+    def _fit_canvas(self, *_):
+        """Fixed figure size: show it at that size (text sizes in pt then look as they will on paper)."""
+        if self.auto_size.isChecked():
+            self.canvas.setMinimumSize(120, 120)
+            self.canvas.setMaximumSize(16777215, 16777215)
+            self._right_lay.setAlignment(self.canvas, Qt.Alignment())
+            return
+        self._right_lay.setAlignment(self.canvas, Qt.AlignHCenter | Qt.AlignTop)
+        ratio = getattr(self.canvas, "device_pixel_ratio", 1) or 1
+        w = int(self.fig_w.value() * self.fig.dpi / ratio)
+        h = int(self.fig_h.value() * self.fig.dpi / ratio)
+        self.canvas.setFixedSize(max(w, 120), max(h, 120))
+
+    # ---- style helpers for the graphs
+    @property
+    def S(self):
+        return self.style_panel.values()
+
+    def _bar_kw(self, S, color):
+        kw = dict(width=S["bar_width"], color=color, alpha=S["bar_alpha"])
+        kw["edgecolor"] = "#222222" if S["bar_edge"] else "none"
+        kw["linewidth"] = 0.8 if S["bar_edge"] else 0
+        kw["error_kw"] = dict(elinewidth=S["err_lw"], capsize=S["capsize"], capthick=S["err_lw"], ecolor="#222222")
+        return kw
+
+    def _points(self, a, x, v, color, S, rng, zorder=3, label="_pts"):
+        """Individual data points around x (spread sideways), styled from S."""
+        v = np.asarray(v, float)
+        if v.size == 0:
+            return
+        xs = x + rng.uniform(-S["jitter"], S["jitter"], v.size) if S["jitter"] else np.full(v.size, x, float)
+        ms = S["point_size"] ** 2
+        if S["point_color"] == "white":
+            a.scatter(xs, v, s=ms, facecolor="white", edgecolor=color, linewidth=0.9, alpha=max(S["point_alpha"], 0.6),
+                      zorder=zorder, label=label)
+        else:
+            c = color if S["point_color"] == "match" else "#333333"
+            a.scatter(xs, v, s=ms, color=c, alpha=S["point_alpha"], edgecolor="white" if c == color else "none",
+                      linewidth=0.4, zorder=zorder, label=label)
+
+    def _fit(self, a, x, y, color, S, label_prefix=""):
+        r = fit_line(x, y, S["fit"])
+        if r is None:
+            return None
+        lab = (f"{label_prefix}{r['text']}" if S["fit_eq"] else "_fit")
+        a.plot(r["xs"], r["ys"], "--", color=color, lw=max(S["line_width"] * 0.9, 0.6), label=lab, zorder=2)
+        if S["fit_band"] and r["lo"] is not None:
+            a.fill_between(r["xs"], r["lo"], r["hi"], color=color, alpha=0.12, lw=0, zorder=1)
+        return r
+
+    def _finish(self, axs, xlabel, ylabel, title, bars=False):
+        """Labels, axes, legend and title of a finished graph, styled from the Style panel."""
+        S = self.S
         many = len(axs) > 1
         xl = self.xlabel.text() or xlabel
         yl = self.ylabel.text() or ylabel
         ncols = min(self.ncols.value(), len(axs)) if many else 1
         nrows = int(np.ceil(len(axs) / ncols))
+        # long axis labels on a small figure: wrap them so they fit next to the axes
+        import textwrap
+        wi, hi_ = self.fig.get_size_inches()
+        fit_y = int(0.8 * hi_ * 72 / (0.55 * S["size_label"]) / (1 if (nrows == 1 or not many) else 1))
+        fit_x = int(0.8 * wi * 72 / ncols / (0.55 * S["size_label"]))
+        if yl and "\n" not in yl and len(yl) > max(fit_y, 12):
+            yl = textwrap.fill(yl, max(fit_y, 12))
+        if xl and "\n" not in xl and len(xl) > max(fit_x, 12):
+            xl = textwrap.fill(xl, max(fit_x, 12))
+
+        def num(txt):
+            try:
+                return float(txt) if str(txt).strip() else None
+            except ValueError:
+                return None
+        ylo, yhi, xlo, xhi = (num(S[k]) for k in ("ymin", "ymax", "xmin", "xmax"))
         for i, a in enumerate(axs):
-            if not getattr(a, "name", "") == "polar":
-                a.grid(self.grid.isChecked(), alpha=0.3)
-                last_row = i // ncols == nrows - 1 or i + ncols >= len(axs)
-                if xl and (not many or last_row):
-                    a.set_xlabel(xl)
-                if yl and (not many or i % ncols == 0):
-                    a.set_ylabel(yl)
-                try:
-                    lo = float(self.ymin.text()) if self.ymin.text().strip() else None
-                    hi = float(self.ymax.text()) if self.ymax.text().strip() else None
-                    if lo is not None or hi is not None:
-                        a.set_ylim(lo, hi)
-                except ValueError:
-                    pass
-            for item in [a.title, a.xaxis.label, a.yaxis.label] + a.get_xticklabels() + a.get_yticklabels():
-                item.set_fontsize(fs if item in (a.xaxis.label, a.yaxis.label, a.title) else fs - 1)
-        pos = self.legend_pos.currentIndex()
-        if pos == 0:                      # automatic: inside a single graph, below several graphs
-            pos = 1 if not many else 3
+            polar = getattr(a, "name", "") == "polar"
+            if not S["show_panel_titles"]:
+                a.set_title("")
+            if polar:
+                continue
+            if S["grid"]:
+                a.grid(True, alpha=0.3)
+            else:
+                a.grid(False)
+            a.set_axisbelow(True)
+            last_row = i // ncols == nrows - 1 or i + ncols >= len(axs)
+            if xl and (not many or last_row):
+                a.set_xlabel(xl)
+            if yl and (not many or (i % ncols == 0 and nrows == 1)):
+                a.set_ylabel(yl)
+            a.tick_params(direction=S["tick_dir"], labelsize=S["size_tick"])
+            if S["xrot"]:
+                for lab in a.get_xticklabels():
+                    lab.set_rotation(S["xrot"])
+                    lab.set_ha("right" if S["xrot"] < 90 else "center")
+                    lab.set_rotation_mode("anchor")
+            if S["logy"]:
+                lo_ = min((ln.get_ydata().min() for ln in a.lines if len(ln.get_ydata())), default=1)
+                if lo_ > 0 or not a.lines:
+                    a.set_yscale("log")
+            elif bars and S["yzero"]:
+                lo, hi = a.get_ylim()
+                if lo >= 0 or all(p.get_height() >= 0 for p in a.patches if hasattr(p, "get_height")):
+                    a.set_ylim(bottom=0)
+            if ylo is not None or yhi is not None:
+                a.set_ylim(ylo, yhi)
+            if xlo is not None or xhi is not None:
+                a.set_xlim(xlo, xhi)
+            for t in a.texts:
+                if t.get_fontsize() and t not in (a.title,):
+                    t.set_fontsize(S["size_annot"])
+                t.set_visible(S["value_labels"] or getattr(t, "_keep", False))
+        if yl and many and nrows > 1:     # several rows: one shared y label (row labels would overlap)
+            self.fig.supylabel(yl, fontsize=S["size_label"])
+        pos = S["legend_pos"]
+        if pos == "auto":                 # inside a single graph, below several graphs
+            pos = "inside" if not many else "below"
         handles, labels = [], []
         for a in axs:
             for h, l in zip(*a.get_legend_handles_labels()):
                 if l not in labels and not l.startswith("_"):
                     handles.append(h); labels.append(l)
-        if handles and pos != 4:
-            if pos == 1:
+        fsl = S["size_legend"]
+        if handles and pos != "none":
+            frame = dict(frameon=S["legend_frame"], fontsize=fsl)
+            if pos == "inside":
                 for a in axs:
                     if a.get_legend_handles_labels()[0]:
                         if getattr(a, "name", "") == "polar":
-                            a.legend(fontsize=fs - 2, frameon=False, loc="upper center", bbox_to_anchor=(0.5, -0.08))
+                            a.legend(loc="upper center", bbox_to_anchor=(0.5, -0.08), **frame)
                         else:
-                            a.legend(fontsize=fs - 1, frameon=False)
-            elif pos == 2:
-                self.fig.legend(handles, labels, loc="outside right upper", fontsize=fs - 1, frameon=False)
+                            a.legend(ncols=max(S["legend_cols"], 1), **frame)
+            elif pos == "right":
+                self.fig.legend(handles, labels, loc="outside right upper", ncols=max(S["legend_cols"], 1), **frame)
             else:
-                width_pt = self.fig.get_size_inches()[0] * 72
-                longest = max(len(l) for l in labels)
-                ncol = int(width_pt // (0.55 * (fs - 1) * longest + 36))
-                self.fig.legend(handles, labels, loc="outside lower center", fontsize=fs - 1, frameon=False,
-                                ncol=max(1, min(ncol, len(labels), 4)))
+                ncol = S["legend_cols"]
+                if not ncol:
+                    width_pt = self.fig.get_size_inches()[0] * 72
+                    longest = max(len(l) for l in labels)
+                    ncol = max(1, min(int(width_pt // (0.55 * fsl * longest + 36)), len(labels), 4))
+                self.fig.legend(handles, labels, loc="outside lower center" if pos == "below" else "outside upper center",
+                                ncols=ncol, **frame)
         t = self.title.text() or title
-        if t:
-            self.fig.suptitle(t, fontsize=fs + 2)
+        if t and S["show_title"]:
+            x, ha = {"left": (0.01, "left"), "center": (0.5, "center"), "right": (0.99, "right")}[S["title_align"]]
+            self.fig.suptitle(t, fontsize=S["size_title"], fontweight="bold" if S["title_bold"] else "normal",
+                              x=x, ha=ha)
+        fam = [S["font"], "DejaVu Sans"]
+        from matplotlib.text import Text
+        for txt in self.fig.findobj(Text):
+            txt.set_fontfamily(fam)
 
     # ------------------------------------------------------------------ drawing
+    def on_theme(self):
+        self._controls_changed()
+        tb = self.toolbar                       # matplotlib picks dark or light icons from the background
+        for _, _, image, callback in getattr(tb, "toolitems", ()):
+            act = getattr(tb, "_actions", {}).get(callback)
+            if act is not None and image:
+                try:
+                    act.setIcon(tb._icon(image + ".png"))
+                except Exception:
+                    pass
+
+    def _set_cards(self, cards):
+        """Summary cards under the graph: (label, value, line1, line2, warn) tuples; [] hides the row."""
+        while self.cards_lay.count():
+            w = self.cards_lay.takeAt(0).widget()
+            if w is not None:
+                w.hide()
+                w.setParent(None)
+                w.deleteLater()
+        for label, value, l1, l2, warn in cards:
+            fr = QFrame()
+            fr.setObjectName("statCardWarn" if warn else "statCard")
+            v = QVBoxLayout(fr)
+            v.setContentsMargins(14, 10, 14, 12)
+            v.setSpacing(2)
+            a = QLabel(label)
+            a.setObjectName("statWarn" if warn else "statLabel")
+            a.setWordWrap(True)
+            v.addWidget(a)
+            if value:
+                b = QLabel(value)
+                b.setObjectName("statValue")
+                v.addWidget(b)
+            for txt in (l1, l2):
+                if txt:
+                    c = QLabel(txt)
+                    c.setObjectName("statWarn" if warn else "statSub")
+                    c.setWordWrap(True)
+                    v.addWidget(c)
+            v.addStretch(1)
+            self.cards_lay.addWidget(fr, 1)
+        self.cards.setVisible(bool(cards))
+
     def redraw(self):
         self.plotted = []
+        if self.ptype.currentData() != "stats":
+            self._set_cards([])
         files = self.selected()
         if self.store.per.empty or not files:
             self.fig.clear()
@@ -731,8 +947,12 @@ class PlotsPage(Page):
             self.note.setText("")
             return
         try:
-            {"series": self.plot_series, "perfile": self.plot_perfile, "change": self.plot_change,
-             "stats": self.plot_stats, "param": self.plot_param, "dist": self.plot_dist}[self.ptype.currentData()](files)
+            import matplotlib
+            self._axs = []
+            with matplotlib.rc_context(rc(self.S)):
+                {"series": self.plot_series, "perfile": self.plot_perfile, "change": self.plot_change,
+                 "stats": self.plot_stats, "param": self.plot_param, "dist": self.plot_dist}[self.ptype.currentData()](files)
+            self.drag.tag(self.fig, self._axs)
         except Exception as e:
             import traceback
             self.fig.clear()
@@ -744,16 +964,18 @@ class PlotsPage(Page):
         self.canvas.draw_idle()
 
     def _metric(self):
-        return self.metric.currentData(), self.metric.currentText()
+        return self.metric_cb.currentData(), self.metric_cb.currentText()
 
     def plot_series(self, files):
         col, mlabel = self._metric()
+        no_of = lambda u: str(self.store.info[u]["file"]).split("_")[-1]
         per = self.store.per
         cols = self.colors(files)
         groups = self.groups(files)
         axs = self._axes(len(groups))
         xmode = self.xaxis.currentData()
         st = self.style_.currentData()
+        S = self.S
         fmt = {"line": "o-", "line_only": "-", "markers": "o"}[st]
         xlabels = set()
         w = self.smooth.value()
@@ -782,13 +1004,18 @@ class PlotsPage(Page):
                 ys = y
                 if w > 1 and len(y) > w:
                     ys = pd.Series(y).rolling(w, center=True, min_periods=1).mean().to_numpy()
-                    if self.points.isChecked():
-                        a.plot(x, y, "o", ms=2.5, alpha=0.35, color=cols[u], label="_raw")
+                    if S["points"]:
+                        a.plot(x, y, "o", ms=S["point_size"], alpha=S["point_alpha"], color=cols[u], label="_raw",
+                               mec="none")
                 if len(x) == 1:
-                    a.errorbar(x, ys, yerr=self._err(df[col]), fmt="o", ms=7, color=cols[u], capsize=4,
-                               label=self.label(u))
+                    a.errorbar(x, ys, yerr=self._err(df[col]), fmt="o", ms=S["marker_size"] * 1.6, color=cols[u],
+                               capsize=S["capsize"], elinewidth=S["err_lw"], capthick=S["err_lw"], label=self.label(u))
                 else:
-                    a.plot(x, ys, fmt, ms=3.5, lw=1.6, color=cols[u], label=self.label(u))
+                    a.plot(x, ys, fmt, ms=S["marker_size"], lw=S["line_width"], color=cols[u], label=self.label(u))
+                    if S["fit"] != "none":
+                        r = self._fit(a, x, y, cols[u], S, f"{no_of(u)}: ")
+                        if r:
+                            self.plotted.append(dict(panel=gname, file=u, fit=r["text"]))
                 for xi, yi in zip(x, ys):
                     self.plotted.append(dict(panel=gname, file=u, label=self.label(u), x=xi, y=yi))
             a.set_title(gname)
@@ -804,34 +1031,39 @@ class PlotsPage(Page):
         groups = self.groups(files)
         axs = self._axes(len(groups))
         st = self.style_.currentData()
+        S = self.S
         for a, (gname, us) in zip(axs, groups):
             xs = np.arange(len(us))
             data = [per.loc[per.uid == u, col].dropna().to_numpy(float) for u in us]
             means = [d.mean() if d.size else np.nan for d in data]
             errs = [self._err(d) for d in data]
+            edge = "#222222" if S["bar_edge"] else None
             if st == "bar":
-                a.bar(xs, means, yerr=errs, capsize=4, color=[cols[u] for u in us], alpha=0.85,
-                      edgecolor="white")
+                a.bar(xs, means, yerr=errs, **self._bar_kw(S, [cols[u] for u in us]))
             elif st == "box":
-                bp = a.boxplot(data, positions=xs, widths=0.55, patch_artist=True, showfliers=False)
+                bp = a.boxplot(data, positions=xs, widths=S["bar_width"] * 0.7, patch_artist=True, showfliers=False)
                 for patch, u in zip(bp["boxes"], us):
-                    patch.set_facecolor(mcolors.to_rgba(cols[u], 0.35)); patch.set_edgecolor(cols[u])
+                    patch.set_facecolor(mcolors.to_rgba(cols[u], S["bar_alpha"] * 0.45))
+                    patch.set_edgecolor(edge or cols[u])
                 for med in bp["medians"]:
                     med.set_color("#222")
             elif st == "violin":
                 ok = [i for i, d in enumerate(data) if d.size > 1]
                 if ok:
-                    vp = a.violinplot([data[i] for i in ok], positions=xs[ok], widths=0.7, showmeans=True)
+                    vp = a.violinplot([data[i] for i in ok], positions=xs[ok], widths=S["bar_width"] * 0.9,
+                                      showmeans=True)
                     for body, i in zip(vp["bodies"], ok):
-                        body.set_facecolor(cols[us[i]]); body.set_alpha(0.45)
+                        body.set_facecolor(cols[us[i]]); body.set_alpha(S["bar_alpha"] * 0.55)
+                        if edge:
+                            body.set_edgecolor(edge)
             else:
                 for x, m, e, u in zip(xs, means, errs, us):
-                    a.errorbar([x], [m], yerr=[e], fmt="o", ms=8, color=cols[u], capsize=5)
-            if self.points.isChecked() or st in ("box", "violin"):
+                    a.errorbar([x], [m], yerr=[e], fmt="o", ms=S["marker_size"] * 2, color=cols[u],
+                               capsize=S["capsize"], elinewidth=S["err_lw"], capthick=S["err_lw"])
+            if S["points"]:
                 rng = np.random.default_rng(0)
                 for x, d, u in zip(xs, data, us):
-                    a.plot(x + rng.uniform(-0.12, 0.12, d.size), d, "o", ms=2.6, color="#333", alpha=0.45,
-                           label="_pts")
+                    self._points(a, x, d, cols[u], S, rng)
             for u in us:
                 a.bar([0], [0], width=0, color=cols[u], label=self.label(u))
             a.set_xticks(xs)
@@ -840,7 +1072,7 @@ class PlotsPage(Page):
             for u, d, m, e in zip(us, data, means, errs):
                 self.plotted.append(dict(panel=gname, file=u, label=self.label(u), n_images=d.size, mean=m,
                                          error=e, error_type=self.err.currentText()))
-        self._finish(axs, "file no.", mlabel, mlabel)
+        self._finish(axs, "file no.", mlabel, mlabel, bars=st == "bar")
         self.note.setText("Bars: mean over the analysed images of each file; error bars as chosen. Images of one "
                           "stack are not independent replicates — use separate gels for statistics.")
 
@@ -884,17 +1116,20 @@ class PlotsPage(Page):
         axs = self._axes(len(groups))
         cols = self.colors(us_all)
         lookup = {u: (smp, ch, b, v, cm, cmatch) for smp, u, ch, b, v, cm, cmatch in rows}
+        S = self.S
         for a, (gname, us) in zip(axs, groups):
             xs = np.arange(len(us))
             vals = [lookup[u][1] for u in us]
-            a.bar(xs, vals, color=[cols[u] for u in us], alpha=0.85)
+            kw = self._bar_kw(S, [cols[u] for u in us])
+            kw.pop("error_kw")
+            a.bar(xs, vals, **kw)
             a.axhline(0, color="#333", lw=0.8)
             a.set_xticks(xs)
-            a.set_xticklabels([f"{lookup[u][0]}\n({str(info[u]['file']).split('_')[-1]})" for u in us], fontsize=8)
+            a.set_xticklabels([f"{lookup[u][0]}\n({str(info[u]['file']).split('_')[-1]})" for u in us])
             for x, v in zip(xs, vals):
                 if np.isfinite(v):
-                    a.annotate(f"{v:+.0f} %", (x, v), ha="center", va="bottom" if v >= 0 else "top", fontsize=8,
-                               xytext=(0, 2 if v >= 0 else -2), textcoords="offset points")
+                    a.annotate(f"{v:+.0f} %", (x, v), ha="center", va="bottom" if v >= 0 else "top",
+                               fontsize=S["size_annot"], xytext=(0, 2 if v >= 0 else -2), textcoords="offset points")
             for u in us:
                 a.bar([0], [0], width=0, color=cols[u], label=self.label(u))
                 smp, ch, b, v, cm, cmatch = lookup[u]
@@ -939,17 +1174,26 @@ class PlotsPage(Page):
             if not arms:
                 continue
             summ, comp = GS.arm_statistics(sub, "y")
+            S = self.S
             for x, arm in enumerate(arms):
                 v = gels.loc[gels["arm"] == arm, "value"].to_numpy(float)
                 st = summ[summ["arm"] == arm].iloc[0]
-                c = GS.ARM_COLORS.get(arm, "#555")
-                a.bar(x, st["mean"], width=0.6, color=c, alpha=0.35, edgecolor=c)
+                c = self.arm_color(arm) or "#555555"
+                kw = self._bar_kw(S, c)
+                kw.pop("error_kw")
+                kw["alpha"] = S["bar_alpha"] * 0.45
+                if not S["bar_edge"]:
+                    kw.update(edgecolor=c, linewidth=1.0)
+                a.bar(x, st["mean"], **kw)
                 if np.isfinite(st["ci95_low"]):
                     a.errorbar(x, st["mean"], yerr=[[st["mean"] - st["ci95_low"]], [st["ci95_high"] - st["mean"]]],
-                               fmt="none", ecolor="#333", capsize=5, lw=1.2)
-                a.scatter(x + rng.uniform(-0.12, 0.12, v.size), v, s=30, color=c, edgecolor="white", zorder=3)
+                               fmt="none", ecolor="#333", capsize=S["capsize"], elinewidth=S["err_lw"],
+                               capthick=S["err_lw"])
+                if S["points"]:
+                    self._points(a, x, v, c, S, rng)
                 a.annotate(f"n = {int(st['n_gels'])}\n{GS.fmt_p(st['p_ttest_vs0'])}", (x, 1.0),
-                           xycoords=("data", "axes fraction"), ha="center", va="top", fontsize=8, color="#333")
+                           xycoords=("data", "axes fraction"), ha="center", va="top", fontsize=S["size_annot"],
+                           color="#333")
                 gl = gels[gels["arm"] == arm]
                 for (_, gr), val in zip(gl.iterrows(), v):
                     self.plotted.append(dict(panel=gname, row="gel", arm=arm, date=gr["date"], sample=gr["sample"],
@@ -967,15 +1211,39 @@ class PlotsPage(Page):
                 self.plotted.append(dict(panel=gname, row="comparison", **cr.to_dict()))
             a.axhline(0, color="#333", lw=0.8)
             a.set_xticks(range(len(arms)))
-            a.set_xticklabels([arm.replace(" (", "\n(") for arm in arms], fontsize=8.5)
+            a.set_xticklabels([arm.replace(" (", "\n(") for arm in arms])
             lo, hi = a.get_ylim()
             a.set_ylim(lo, hi + 0.22 * (hi - lo))
             a.set_title(gname)
         ylab = (f"{mlabel.split(' (')[0]}: change (%)" if change == "pct"
                 else f"Δ {mlabel} (after − before)")
-        self._finish(axs, "", ylab, f"{mlabel}: change by group (dots = gels, bars = mean ± 95 % CI)")
-        self.note.setText("Each dot is one gel (After files of a gel averaged). Above each bar: paired test of "
-                          "the change against 0 (t-test). " + (" | ".join(texts) if texts else
+        self._finish(axs, "", ylab, f"{mlabel.split(' (')[0]}: change by group", bars=True)
+        cards = []
+        for r in [x for x in self.plotted if x.get("row") == "comparison"][:3]:
+            what = str(r["comparison"])
+            head, _, tail = what.partition(" (")
+            label = f"{head[:1].upper() + head[1:]} · {tail.rstrip(')')}" if tail else what
+            if np.isfinite(r.get("p_welch", np.nan)):
+                cards.append((label, f"{r['difference']:+.3g}{unit}",
+                              f"95 % CI {r['diff_ci95_low']:.3g} to {r['diff_ci95_high']:.3g} · Welch "
+                              + GS.fmt_p(r["p_welch"]),
+                              f"Holm {GS.fmt_p(r['p_welch_holm'])} · g {r['hedges_g']:.2g} · "
+                              f"{int(r['n_a'])} vs {int(r['n_b'])} gels", False))
+            else:
+                cards.append((label, f"{r['difference']:+.3g}{unit}", "Needs ≥ 2 gels in each group for a test",
+                              f"{int(r['n_a'])} vs {int(r['n_b'])} gels", False))
+        have = set(exp["arm"])
+        if GS.TREATED in have and GS.SHAM not in have:
+            cards.append(("Before you report this", "", "No sham gel is ticked: the field effect (NC + AMF vs "
+                          "sham) cannot be tested.", "", True))
+        elif any(r[1] and "Needs" in (r[2] or "") for r in cards):
+            cards.append(("Before you report this", "", "Some groups have fewer than 2 gels. Add gels to test "
+                          "those comparisons.", "", True))
+        self._set_cards(cards)
+        self.note.setText("Dots = gels (After files of a gel averaged), bars = mean ± 95 % CI. Above each bar: paired test of "
+                          "the change against 0 (t-test). " + (" | ".join(texts[3:]) if len(texts) > 3 else
+                                                               "Comparisons in the cards; all numbers in the CSV export."
+                                                               if texts else
                           "Tick sham gels too for the field-effect comparison (NC + AMF vs sham).")
                           + (" " + "; ".join(notes) if notes else ""))
 
@@ -989,6 +1257,8 @@ class PlotsPage(Page):
         groups = self.groups(files)
         axs = self._axes(len(groups))
         missing = []
+        S = self.S
+        rng = np.random.default_rng(0)
         for a, (gname, us) in zip(axs, groups):
             series = {}
             for u in us:
@@ -999,15 +1269,25 @@ class PlotsPage(Page):
                     missing.append(u)
                     continue
                 d = per.loc[per.uid == u, col].dropna().to_numpy(float)
-                series.setdefault(cols[u], []).append((float(xv) * sc, d.mean(), self._err(d), u))
+                series.setdefault(cols[u], []).append((float(xv) * sc, d.mean(), self._err(d), u, d))
             for c, pts in series.items():
-                pts.sort()
-                x, y, e, us_ = zip(*pts)
+                pts.sort(key=lambda p: p[:2])
+                x, y, e, us_, ds = zip(*pts)
                 lab = self._legend_for_color(us_)
                 if self.style_.currentData() == "points_lines" and len(pts) > 1:
-                    a.plot(x, y, "-", color=c, lw=1.2, alpha=0.8)
-                a.errorbar(x, y, yerr=e, fmt="o", ms=6, color=c, capsize=4, label=lab)
-                for xi, yi, ei, u in pts:
+                    a.plot(x, y, "-", color=c, lw=S["line_width"] * 0.8, alpha=0.8)
+                if S["points"]:                 # every analysed image at its setting
+                    for xi, d in zip(x, ds):
+                        spread = S["jitter"] * (abs(xi) * 0.15 if self.logx.isChecked() else
+                                                (max(x) - min(x) or 1) * 0.15)
+                        self._points(a, xi, d, c, dict(S, jitter=spread), rng, zorder=2)
+                a.errorbar(x, y, yerr=e, fmt="o", ms=S["marker_size"] * 1.5, color=c, capsize=S["capsize"],
+                           elinewidth=S["err_lw"], capthick=S["err_lw"], label=lab, zorder=3)
+                if S["fit"] != "none":
+                    r = self._fit(a, x, y, c, S, "")
+                    if r:
+                        self.plotted.append(dict(panel=gname, group=lab, fit=r["text"]))
+                for xi, yi, ei, u, _ in pts:
                     self.plotted.append(dict(panel=gname, file=u, x=xi, mean=yi, error=ei))
             if self.logx.isChecked():
                 a.set_xscale("log")
@@ -1016,6 +1296,9 @@ class PlotsPage(Page):
         self.note.setText(("Not shown (no value in the file name): " + ", ".join(missing[:4]) +
                            ("…" if len(missing) > 4 else "") + ". ") if missing else
                           "Each point = one file (mean over its images ± error). Colors as chosen under ‘Colors’.")
+        if S["fit"] != "none":
+            self.note.setText(self.note.text() + " Fit lines: fitted to the file means, one per colour (equation in "
+                              "the legend and the CSV export).")
 
     def param_x(self):
         num = [k for k in self.store.user_fields if pd.api.types.is_numeric_dtype(self.store.per[k])]
@@ -1041,6 +1324,8 @@ class PlotsPage(Page):
             return r["condition"]
         if key == "file":
             return self.label(us[0])
+        if key == "arm":
+            return str(r.get("arm") or "")
         return f"{dict(COLOR_BY).get(key, key.replace('_', ' '))}: {_fmt(r.get(key))}"
 
     def plot_dist(self, files):
@@ -1077,17 +1362,17 @@ class PlotsPage(Page):
                 if cum or which == "fib":
                     x = edges[1:-1]
                     y = 100 * np.cumsum(h[:-1]) / tot
-                    a.step(np.r_[0, x], np.r_[0, y], where="post", color=cols[u], lw=1.7, label=lab)
+                    a.step(np.r_[0, x], np.r_[0, y], where="post", color=cols[u], lw=self.S["line_width"], label=lab)
                 elif which == "lt":
                     x, y = core.lt_curve(h)
-                    a.plot(x, y, "o-", ms=2.5, color=cols[u], lw=1.6, label=lab)
+                    a.plot(x, y, "o-", ms=self.S["marker_size"] * 0.65, color=cols[u], lw=self.S["line_width"], label=lab)
                 else:
                     fine = h[:-1]
                     idx = np.searchsorted(core.SEG_EDGES[:-1], core.SEG_PLOT_EDGES[:-1], side="left")
                     hh = np.add.reduceat(fine, idx)
                     x = (core.SEG_PLOT_EDGES[:-1] + core.SEG_PLOT_EDGES[1:]) / 2
                     y = 100 * hh / tot / np.diff(core.SEG_PLOT_EDGES)
-                    a.plot(x, y, "o-", ms=2.5, color=cols[u], lw=1.6, label=lab)
+                    a.plot(x, y, "o-", ms=self.S["marker_size"] * 0.65, color=cols[u], lw=self.S["line_width"], label=lab)
                 for xi, yi in zip(x, y):
                     self.plotted.append(dict(panel=gname, file=u, x=xi, y=yi))
             if polar:
@@ -1121,6 +1406,7 @@ class PlotsPage(Page):
         try:
             if not self.auto_size.isChecked():
                 self.fig.set_size_inches(self.fig_w.value(), self.fig_h.value())
+            style.theme_figure(self.fig, night=False)     # saved figures: white paper, dark text
             self.fig.savefig(p, dpi=self.dpi.value(), bbox_inches="tight", facecolor="white")
         finally:
             self.fig.set_size_inches(old)

@@ -19,6 +19,7 @@ from matplotlib.patches import Patch
 
 from ml import patterns as PT
 from .widgets import Page, button, hint, banner, hbox
+from .widgets import ThemedCanvas
 from . import style
 
 COLORS = ["#3b6fb6", "#d9622b", "#2a9d5c", "#8e44ad", "#c0392b", "#e0a800", "#17a2b8", "#6d4c41", "#ad1457",
@@ -120,7 +121,7 @@ class PatternsPage(Page):
         # types
         w = QWidget(); l = QVBoxLayout(w)
         self.prof_fig = Figure(figsize=(8, 3.6), layout="constrained")
-        l.addWidget(FigureCanvasQTAgg(self.prof_fig), 2)
+        l.addWidget(ThemedCanvas(self.prof_fig), 2)
         self.prof_table = _table()
         l.addWidget(self.prof_table, 1)
         l.addWidget(hint("Colours: how far each type's average is from the average of all tiles, in standard "
@@ -129,7 +130,7 @@ class PatternsPage(Page):
         # before / after
         w = QWidget(); l = QVBoxLayout(w)
         self.ba_fig = Figure(figsize=(8, 4.2), layout="constrained")
-        l.addWidget(FigureCanvasQTAgg(self.ba_fig), 2)
+        l.addWidget(ThemedCanvas(self.ba_fig), 2)
         self.ba_label = QLabel("")
         self.ba_label.setWordWrap(True)
         self.ba_label.setTextFormat(Qt.RichText)
@@ -150,7 +151,7 @@ class PatternsPage(Page):
         self.map_pair.toggled.connect(self.draw_map)
         l.addWidget(hbox(QLabel("File"), self.map_file, QLabel("Image"), self.map_img, self.map_pair))
         self.map_fig = Figure(figsize=(8, 4.5), layout="constrained")
-        l.addWidget(FigureCanvasQTAgg(self.map_fig), 1)
+        l.addWidget(ThemedCanvas(self.map_fig), 1)
         l.addWidget(hint("Each square is one tile at its place in the image, coloured by its type; white = tile not "
                          "used (image edge, hotspot, flagged or missing values)."))
         self.tabs.addTab(w, "Tile map")
@@ -166,13 +167,13 @@ class PatternsPage(Page):
         self.emb_color.currentIndexChanged.connect(self.draw_embedding)
         l.addWidget(hbox(QLabel("View"), self.emb_method, QLabel("Colour by"), self.emb_color))
         self.emb_fig = Figure(figsize=(7, 5), layout="constrained")
-        l.addWidget(FigureCanvasQTAgg(self.emb_fig), 1)
+        l.addWidget(ThemedCanvas(self.emb_fig), 1)
         l.addWidget(hint("Each dot is a tile (up to 4000 shown). Tiles close together have similar structure."))
         self.tabs.addTab(w, "Tile space")
         # k
         w = QWidget(); l = QVBoxLayout(w)
         self.k_fig = Figure(figsize=(6, 4), layout="constrained")
-        l.addWidget(FigureCanvasQTAgg(self.k_fig), 1)
+        l.addWidget(ThemedCanvas(self.k_fig), 1)
         l.addWidget(hint("BIC for each number of types: the lowest value balances fit against complexity. Prefer a "
                          "small k you can interpret if the curve is flat."))
         self.tabs.addTab(w, "Choosing k")
@@ -195,7 +196,7 @@ class PatternsPage(Page):
             ps = glob.glob(os.path.join(d, "**", "*_tiles.csv"), recursive=True)
             if not ps:
                 QMessageBox.information(self, "Patterns", "No mmddyy_tiles.csv found. Tile tables are written by runs "
-                                        "of this version (Outputs page → per-tile table).")
+                                        "of this version (Outputs step → per-tile table).")
             self.load_paths(ps)
 
     def load_paths(self, paths):

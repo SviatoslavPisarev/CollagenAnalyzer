@@ -3,11 +3,14 @@ import os
 import glob
 import json
 
-from PySide6.QtCore import Qt, Signal, QObject, QRunnable, QThreadPool, QSettings
-from PySide6.QtGui import QColor, QBrush, QFont, QDoubleValidator
-from PySide6.QtWidgets import (QButtonGroup, QFileDialog, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-                               QListWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, QAbstractItemView,
-                               QStyledItemDelegate, QComboBox, QMenu, QMessageBox)
+from PySide6.QtCore import Qt, Signal, QObject, QRunnable, QThreadPool, QSettings, QRectF
+from PySide6.QtGui import QColor, QBrush, QFont, QDoubleValidator, QPainter
+from PySide6.QtWidgets import (QButtonGroup, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLabel,
+                               QLineEdit, QListWidget, QPushButton, QSizePolicy, QTableWidget, QTableWidgetItem,
+                               QVBoxLayout, QWidget, QAbstractItemView, QStyledItemDelegate, QComboBox, QMenu,
+                               QMessageBox, QStyle)
+
+import gelstats as GS
 
 from .common import (IMAGE_EXT, parse_file_name, read_header, kind_text, STD_FIELDS, FIELD_TIPS, parsed_value,
                      field_key, fmt_value)
@@ -17,7 +20,15 @@ from . import style
 
 LEFT = ["", "File", "Folder", "Date", "Sample", "QC"]
 RIGHT = ["Type", "Pixel (µm)"]
-EDITED_BG = QColor("#fff3c4")
+MODES = [("file", "One file", "Detailed report of a single .nd2 / .tif: a figure of every image, slice comparisons "
+                              "and a spreadsheet."),
+         ("folder", "One folder", "All image files of a folder (or the ones you tick): per-file results plus "
+                                  "before/after and side-by-side comparisons."),
+         ("folders", "Several folders", "Each folder analysed on its own, plus one combined summary.xlsx of all "
+                                        "folders.")]
+FILTERS = [("all", "All"), ("before", "Before"), ("after", "After AMF"), ("sham", "Sham"), ("check", "⚠ Check")]
+PILL = {"before": ("BEFORE_BG", "BEFORE_FG"), "after": ("AFTER_BG", "AFTER_FG"), "sham": ("SHAM_BG", "SHAM_FG"),
+        "amfonly": ("AMFONLY_BG", "AMFONLY_FG")}
 
 
 class FieldDelegate(QStyledItemDelegate):
@@ -55,6 +66,171 @@ class FieldDelegate(QStyledItemDelegate):
         else:
             model.setData(index, editor.text(), Qt.EditRole)
 
+    def paint(self, painter, option, index):
+        """Gels in alternating bands (files of one gel together); the condition as a coloured tag."""
+        page = self.page
+        path = index.sibling(index.row(), 0).data(Qt.UserRole)
+        selected = bool(option.state & QStyle.State_Selected)
+        if not selected and index.data(Qt.BackgroundRole) is None and page.band.get(path):
+            painter.fillRect(option.rect, QColor(style.GEL_BAND))
+        f = page.col_field.get(index.column())
+        if f is None or f["key"] != "condition" or not index.data(Qt.DisplayRole):
+            super().paint(painter, option, index)
+            return
+        if selected:
+            painter.fillRect(option.rect, QColor(style.ACCENT_SOFT))
+        text = index.data(Qt.DisplayRole)
+        kind = style.pill_kind(text, page.arm.get(path, ""))
+        bg, fg = (QColor(getattr(style, k)) for k in PILL[kind])
+        label = text
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing)
+        fnt = QFont(option.font)
+        fnt.setWeight(QFont.DemiBold)
+        fnt.setPointSizeF(max(fnt.pointSizeF() * 0.92, 8))
+        painter.setFont(fnt)
+        w = painter.fontMetrics().horizontalAdvance(label) + 16
+        h = min(option.rect.height() - 8, painter.fontMetrics().height() + 6)
+        r = QRectF(option.rect.x() + 6, option.rect.center().y() - h / 2 + 0.5, min(w, option.rect.width() - 10), h)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(bg)
+        painter.drawRoundedRect(r, 6, 6)
+        painter.setPen(fg)
+        painter.drawText(r, Qt.AlignCenter, label)
+        painter.restore()
+
+
+class ReadyPanel(QFrame):
+    """Side panel of the Files step: what will be analysed and what to check first."""
+    run_now = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("card")
+        self.setFixedWidth(290)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(16, 14, 16, 16)
+        lay.setSpacing(12)
+        t = QLabel("Ready to run")
+        t.setObjectName("cardTitle")
+        lay.addWidget(t)
+        nums = QHBoxLayout()
+        nums.setSpacing(10)
+        self.big = {}
+        for key, lab in (("files", "files ticked"), ("gels", "gels")):
+            box = QFrame()
+            box.setObjectName("sunken")
+            bl = QVBoxLayout(box)
+            bl.setContentsMargins(12, 8, 12, 8)
+            bl.setSpacing(0)
+            v = QLabel("0")
+            v.setObjectName("bigNumber")
+            l = QLabel(lab)
+            l.setObjectName("hint")
+            bl.addWidget(v)
+            bl.addWidget(l)
+            nums.addWidget(box)
+            self.big[key] = v
+        lay.addLayout(nums)
+        self.arm_box = QVBoxLayout()
+        self.arm_box.setSpacing(6)
+        lay.addLayout(self.arm_box)
+        line = QFrame()
+        line.setFixedHeight(1)
+        line.setObjectName("sunken")
+        lay.addWidget(line)
+        self.check_box = QVBoxLayout()
+        self.check_box.setSpacing(7)
+        lay.addLayout(self.check_box)
+        b = button("Skip to Run →", tip="Use the current settings and outputs and go straight to the Run step")
+        b.clicked.connect(self.run_now.emit)
+        lay.addWidget(b)
+
+    @staticmethod
+    def _clear(box):
+        while box.count():
+            it = box.takeAt(0)
+            w = it.widget()
+            if w is not None:
+                w.hide()
+                w.setParent(None)
+                w.deleteLater()
+            elif it.layout() is not None:
+                ReadyPanel._clear(it.layout())
+
+    def _line(self, box, ok, text):
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        m = QLabel("✓" if ok else "!")
+        m.setObjectName("checkOk" if ok else "checkWarn")
+        m.setFixedWidth(10)
+        t = QLabel(text)
+        t.setWordWrap(True)
+        t.setObjectName("" if ok else "checkTextWarn")
+        t.setStyleSheet("font-size: 12px;")
+        row.addWidget(m, 0, Qt.AlignTop)
+        row.addWidget(t, 1)
+        box.addLayout(row)
+
+    def update_from(self, page, sel, gels):
+        sel = set(sel)
+        tg = {k: [(p, c, n) for p, c, n in v if p in sel] for k, v in gels.items()}
+        tg = {k: v for k, v in tg.items() if v}
+        self.big["files"].setText(str(len(sel)))
+        self.big["gels"].setText(str(len(tg)))
+        self._clear(self.arm_box)
+        arm_n = {}
+        for k, files in tg.items():
+            a = page.arm.get(files[0][0], "")
+            for one in (a.split(" / ") if a else ["no After file"]):
+                arm_n[one] = arm_n.get(one, 0) + 1
+        for a in GS.ARMS + ["no After file"]:
+            if a not in arm_n:
+                continue
+            row = QHBoxLayout()
+            row.setSpacing(8)
+            dot = QLabel()
+            dot.setObjectName("dot")
+            dot.setStyleSheet(f"background: {style.arm_color(a) if a in GS.ARMS else style.FAINT};")
+            row.addWidget(dot)
+            row.addWidget(QLabel(a[:1].upper() + a[1:]), 1)
+            n = QLabel(str(arm_n[a]))
+            n.setStyleSheet("font-weight: 700;")
+            row.addWidget(n)
+            self.arm_box.addLayout(row)
+        self._clear(self.check_box)
+        if not tg:
+            self._line(self.check_box, False, "Tick the files to analyse.")
+            return
+        no_before = [k[1] for k, v in tg.items() if not any(not str(c).startswith("After") for _, c, _ in v)]
+        no_after = [k[1] for k, v in tg.items() if not any(str(c).startswith("After") for _, c, _ in v)]
+        self._line(self.check_box, not no_before, "Every gel has a Before file" if not no_before else
+                   f"{len(no_before)} gel(s) without a Before file: " + ", ".join(no_before[:3]))
+        if no_after:
+            self._line(self.check_box, False, f"{len(no_after)} gel(s) without an After file (not compared)")
+        amf_days = {k[0] for k, v in tg.items() if any(c == "After AMF" for _, c, _ in v)}
+        sham_days = {k[0] for k, v in tg.items() if any(GS.is_sham(c) for _, c, _ in v)}
+        if amf_days:
+            miss = sorted(amf_days - sham_days)
+            self._line(self.check_box, not miss,
+                       "Sham controls on every day" if not miss else
+                       ("No sham gel — changes can’t be corrected for drift" if not sham_days else
+                        "No sham gel on " + ", ".join(miss[:3])))
+        px = {round(h["px"], 5) for p, h in page.headers.items() if p in sel and h.get("px")}
+        if len(px) > 1:
+            self._line(self.check_box, False, f"Pixel sizes differ ({len(px)} values) — compare with care")
+        elif px:
+            self._line(self.check_box, True, "Same pixel size in every file")
+        flagged = [p for p in sel if "check" in page._kind_of(p)]
+        if flagged:
+            self._line(self.check_box, False, f"{len(flagged)} file(s) marked ‘check’ by the last quality check")
+        bad = [p for p in sel if not page.rows[p]["named"]]
+        if bad:
+            self._line(self.check_box, False, f"{len(bad)} name(s) don’t start with mmddyy_##_")
+        nm = page.n_manual()
+        if nm:
+            self._line(self.check_box, True, f"{nm} value(s) typed by hand will be used")
+
 
 class _HeaderSignals(QObject):
     done = Signal(str, dict)
@@ -73,7 +249,7 @@ class DataPage(Page):
     changed = Signal()
 
     def __init__(self, parent=None):
-        super().__init__("1 · Data", "Choose what to analyse. File names are read for date, sample, AMF settings, "
+        super().__init__("Choose your images", "Choose what to analyse. File names are read for date, sample, AMF settings, "
                          "collagen and nanocage conditions — check the table before running.", scroll=False)
         self.setAcceptDrops(True)
         self.mode = "folder"
@@ -100,31 +276,31 @@ class DataPage(Page):
             self.qc = {}
         self.col_field = {}
 
-        # ---- mode cards
-        cards = QWidget()
-        cl = QHBoxLayout(cards)
-        cl.setContentsMargins(0, 0, 0, 0)
-        cl.setSpacing(12)
-        self.mode_buttons = {}
-        grp = QButtonGroup(self)
-        for key, title, text in [
-                ("file", "One file", "Detailed report of a single .nd2 / .tif: a figure of every image, "
-                                     "slice comparisons and a spreadsheet."),
-                ("folder", "One folder", "All image files of a folder (or the ones you tick): per-file results "
-                                         "plus before/after and side-by-side comparisons."),
-                ("folders", "Several folders", "Each folder analysed on its own, plus one combined "
-                                               "summary.xlsx of all folders.")]:
-            b = ModeCard(title, text)
-            b.clicked.connect(lambda _=False, k=key: self.set_mode(k))
-            grp.addButton(b)
-            cl.addWidget(b)
-            self.mode_buttons[key] = b
-        self.lay.addWidget(cards)
+        self.band, self.arm = {}, {}      # path -> gel band (0/1) and group, for the table
+        self.filter_kind = "all"
 
-        # ---- source card
+        # ---- source card: what to analyse (segmented control) + where
         src = Card()
         self.src_label = QLabel()
-        self.src_label.setStyleSheet("font-weight: 700; font-size: 14px;")
+        self.src_label.setObjectName("cardTitle")
+        seg = QFrame()
+        seg.setObjectName("segGroup")
+        sgl = QHBoxLayout(seg)
+        sgl.setContentsMargins(3, 3, 3, 3)
+        sgl.setSpacing(2)
+        self.mode_buttons = {}
+        grp = QButtonGroup(self)
+        for key, title, text in MODES:
+            b = QPushButton(title)
+            b.setObjectName("seg")
+            b.setCheckable(True)
+            b.setCursor(Qt.PointingHandCursor)
+            b.setToolTip(text)
+            b.clicked.connect(lambda _=False, k=key: self.set_mode(k))
+            grp.addButton(b)
+            sgl.addWidget(b)
+            self.mode_buttons[key] = b
+        self.mode_hint = hint("")
         self.path_edit = QLineEdit()
         self.path_edit.setReadOnly(True)
         self.path_edit.setPlaceholderText("Nothing selected yet — click Choose…, or drag files / folders onto this window")
@@ -135,7 +311,8 @@ class DataPage(Page):
         self.folder_list = QListWidget()
         self.folder_list.setObjectName("plain")
         self.folder_list.setMaximumHeight(96)
-        src.lay.addWidget(self.src_label)
+        src.lay.addWidget(hbox(self.src_label, "stretch", seg, stretch_end=False))
+        src.lay.addWidget(self.mode_hint)
         self.single_row = hbox(self.path_edit, self.browse_btn, stretch_end=False)
         self.single_row.layout().setStretch(0, 1)
         src.lay.addWidget(self.single_row)
@@ -148,27 +325,45 @@ class DataPage(Page):
         files = Card()
         top = QHBoxLayout()
         self.count_label = QLabel("No files")
-        self.count_label.setStyleSheet("font-weight: 700; font-size: 14px;")
+        self.count_label.setObjectName("cardTitle")
         self.filter_edit = QLineEdit()
         self.filter_edit.setPlaceholderText("Filter by name, sample, condition…")
         self.filter_edit.setClearButtonEnabled(True)
         self.filter_edit.textChanged.connect(self.apply_filter)
         self.filter_edit.setMaximumWidth(280)
         top.addWidget(self.count_label)
+        top.addSpacing(8)
+        self.chips = {}
+        cgrp = QButtonGroup(self)
+        for key, text in FILTERS:
+            b = QPushButton(text)
+            b.setObjectName("chipWarn" if key == "check" else "chip")
+            b.setCheckable(True)
+            b.setCursor(Qt.PointingHandCursor)
+            b.clicked.connect(lambda _=False, k=key: self.set_filter_kind(k))
+            cgrp.addButton(b)
+            top.addWidget(b)
+            self.chips[key] = b
+        self.chips["all"].setChecked(True)
         top.addStretch(1)
         top.addWidget(self.filter_edit)
-        top.addWidget(button("Tick all", slot=lambda: self.tick_all(True)))
-        top.addWidget(button("Untick all", slot=lambda: self.tick_all(False)))
-        top.addWidget(button("Untick QC ‘check’", slot=self.untick_flagged,
-                             tip="Untick the files the quality check of the last run marked ‘check’ "
-                                 "(see the QC column)"))
-        top.addWidget(button("Defaults && added parameters…", "primary", slot=self.edit_fields,
-                             tip="Default values used when a file name lacks them, and your own parameters "
-                                 "(e.g. gel thickness, NC type) — remembered for future runs"))
         files.lay.addLayout(top)
+        acts = QHBoxLayout()
+        acts.addWidget(button("Tick all shown", slot=lambda: self.tick_all(True)))
+        acts.addWidget(button("Untick all shown", slot=lambda: self.tick_all(False)))
+        acts.addWidget(button("Untick QC ‘check’", slot=self.untick_flagged,
+                              tip="Untick the files the quality check of the last run marked ‘check’ "
+                                  "(see the QC column)"))
+        acts.addStretch(1)
+        acts.addWidget(button("Defaults && added parameters…", slot=self.edit_fields,
+                              tip="Default values used when a file name lacks them, and your own parameters "
+                                  "(e.g. gel thickness, NC type) — remembered for future runs"))
+        files.lay.addLayout(acts)
         self.table = QTableWidget(0, 0)
         self.table.verticalHeader().setVisible(False)
-        self.table.setAlternatingRowColors(True)
+        self.table.verticalHeader().setDefaultSectionSize(34)
+        self.table.setShowGrid(False)
+        self.table.setAlternatingRowColors(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectItems)
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.table.setEditTriggers(QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed
@@ -187,25 +382,49 @@ class DataPage(Page):
         self.warn = banner("")
         self.warn.hide()
         files.lay.addWidget(self.warn)
-        legend = QLabel("Double-click a value to change it (e.g. an NC concentration missing from the name). "
-                        "<span style='background:#fff3c4'>&nbsp;Yellow&nbsp;</span> = typed by hand, "
-                        "<i style='color:#6b7785'>grey italic</i> = default. Right-click for: copy to selected / "
-                        "ticked files, back to the file-name value. Your changes are remembered.")
-        legend.setObjectName("hint")
-        legend.setWordWrap(True)
-        files.lay.addWidget(legend)
-        files.lay.addWidget(hint("Tick the files to analyse. Files of one sample (same mmddyy_##_) are compared "
-                                 "before vs after AMF."))
-        self.lay.addWidget(files, 1)
+        self.legend = QLabel()
+        self.legend.setObjectName("hint")
+        self.legend.setWordWrap(True)
+        files.lay.addWidget(self.legend)
+        self._set_legend()
+
+        # ---- side panel: ready to run?
+        self.ready = ReadyPanel()
+        row = QHBoxLayout()
+        row.setSpacing(14)
+        row.addWidget(files, 1)
+        row.addWidget(self.ready, 0, Qt.AlignTop)
+        self.lay.addLayout(row, 1)
 
         s = QSettings()
         self.set_mode(s.value("data/mode", "folder"))
 
     # ------------------------------------------------------------------ mode / sources
+    def _set_legend(self):
+        self.legend.setText(
+            "Files of one gel (same mmddyy_##_) are shown together and compared before vs after. Double-click a "
+            "value to change it (e.g. an NC concentration missing from the name): "
+            f"<span style='background:{style.EDITED_BG}'>&nbsp;highlighted&nbsp;</span> = typed by hand, "
+            f"<i style='color:{style.MUTED}'>grey italic</i> = default. Right-click: copy to selected / ticked "
+            "files, back to the file-name value. Your changes are remembered.")
+
+    def on_theme(self):
+        self._set_legend()
+        was = self.table.blockSignals(True)
+        for i in range(self.table.rowCount()):
+            it = self.table.item(i, 0)
+            if it is not None:
+                self._fill_fields(i, it.data(Qt.UserRole))
+                self._fill_qc(i, it.data(Qt.UserRole))
+        self.table.blockSignals(was)
+        self.table.viewport().update()
+        self._update_count()
+
     def set_mode(self, mode):
         self.mode = mode
         for k, b in self.mode_buttons.items():
             b.setChecked(k == mode)
+        self.mode_hint.setText(dict((k, t) for k, _, t in MODES)[mode])
         multi = mode == "folders"
         self.src_label.setText({"file": "Image file", "folder": "Data folder", "folders": "Data folders"}[mode])
         self.single_row.setVisible(not multi)
@@ -345,8 +564,9 @@ class DataPage(Page):
         self.table.resizeColumnsToContents()
         self.table.setColumnWidth(0, 32)
         self.table.setColumnWidth(1, min(max(self.table.columnWidth(1), 220), 420))
-        for c in self.col_field:
-            self.table.setColumnWidth(c, min(max(self.table.columnWidth(c), 70), 200))
+        for c, f in self.col_field.items():
+            self.table.setColumnWidth(c, min(max(self.table.columnWidth(c), 110 if f["key"] == "condition" else 70),
+                                             200))
         self.table.setSortingEnabled(True)
         self.table.blockSignals(False)
         self.apply_filter(self.filter_edit.text())
@@ -391,10 +611,11 @@ class DataPage(Page):
             font.setItalic(src == "default")
             font.setBold(src == "edited")
             it.setFont(font)
-            it.setBackground(QBrush(EDITED_BG) if src == "edited" else QBrush())
-            col = (style.AFTER if v == "After AMF" else style.SHAM if v == "After sham" else style.BEFORE) \
-                if f["key"] == "condition" else None
-            it.setForeground(QBrush(QColor(col or ("#6b7785" if src == "default" else style.TEXT))))
+            if src == "edited":
+                it.setBackground(QBrush(QColor(style.EDITED_BG)))
+            else:
+                it.setData(Qt.BackgroundRole, None)
+            it.setForeground(QBrush(QColor(style.MUTED if src == "default" else style.TEXT)))
             name_v = parsed_value(self.rows[path], f["key"]) if not f["custom"] else None
             tips = {"edited": f"Typed by hand (file name: {fmt_value(name_v) or 'nothing'}). Right-click → "
                               "‘Back to file-name value’ to undo.",
@@ -645,17 +866,64 @@ class DataPage(Page):
         self.table.blockSignals(False)
         self._update_count()
 
-    def apply_filter(self, text):
-        t = text.lower().strip()
+    def set_filter_kind(self, kind):
+        self.filter_kind = kind
+        self.apply_filter(self.filter_edit.text())
+
+    def _kind_of(self, path):
+        """before / after / sham / check flags of one file (for the filter chips)."""
+        f = next((f for f in self.col_field.values() if f["key"] == "condition"), None)
+        cond = self.value(path, f)[0] if f else self.rows[path]["condition"]
+        k = {"before"} if not str(cond).startswith("After") else {"sham"} if GS.is_sham(cond) else {"after"}
+        if self.qc.get(os.path.splitext(os.path.basename(path))[0], ("",))[0] == "check":
+            k.add("check")
+        return k
+
+    def apply_filter(self, text=None):
+        t = (self.filter_edit.text() if text is None else text).lower().strip()
         for i in range(self.table.rowCount()):
+            p = self.table.item(i, 0).data(Qt.UserRole)
             row = " ".join(self.table.item(i, c).text().lower() for c in range(1, self.table.columnCount()))
-            self.table.setRowHidden(i, bool(t) and t not in row)
+            hide = bool(t) and t not in row
+            if self.filter_kind != "all" and p in self.rows:
+                hide = hide or self.filter_kind not in self._kind_of(p)
+            self.table.setRowHidden(i, hide)
+
+    def _groups(self):
+        """Gel bands and groups (NC + AMF, sham, …) of every listed file, from the (possibly edited) values."""
+        fc = next((f for f in self.col_field.values() if f["key"] == "condition"), None)
+        fn = next((f for f in self.col_field.values() if f["key"] == "nc_nM"), None)
+        gels = {}
+        for p, r in self.rows.items():
+            cond = self.value(p, fc)[0] if fc else r["condition"]
+            nc = self.value(p, fn)[0] if fn else None
+            gels.setdefault((r["date"], r["sample"]), []).append((p, cond, nc))
+        self.band, self.arm = {}, {}
+        for k, key in enumerate(sorted(gels)):
+            files = gels[key]
+            arms = [GS.file_arm(c, n) for _, c, n in files]
+            joined = " / ".join(dict.fromkeys(a for a in arms if a))
+            for (p, _, _), a in zip(files, arms):
+                self.band[p] = k % 2
+                self.arm[p] = a or joined
+        return gels
 
     def _update_count(self):
         sel = self.selected_files()
         n = len(self.rows)
         samples = {self.rows[p]["sample"] for p in sel}
-        self.count_label.setText(f"{len(sel)} of {n} file(s) ticked · {len(samples)} sample(s)" if n else "No files")
+        self.count_label.setText(f"Files  ·  {len(sel)} of {n} ticked" if n else "Files")
+        gels = self._groups()
+        counts = {k: 0 for k, _ in FILTERS}
+        for p in self.rows:
+            counts["all"] += 1
+            for k in self._kind_of(p):
+                counts[k] += 1
+        for k, text in FILTERS:
+            self.chips[k].setText(f"{text} {counts[k]}")
+            self.chips[k].setVisible(k in ("all", "before", "after") or counts[k] > 0)
+        self.ready.update_from(self, sel, gels)
+        self.table.viewport().update()
         msgs = []
         bad = [self.rows[p]["name"] for p in sel if not self.rows[p]["named"]]
         if bad:
@@ -667,7 +935,7 @@ class DataPage(Page):
         tif_nopx = [p for p in sel if p.lower().endswith((".tif", ".tiff")) and p in self.headers
                     and "error" not in self.headers[p] and not self.headers[p].get("px")]
         if tif_nopx:
-            msgs.append(f"{len(tif_nopx)} TIFF file(s) have no pixel size — set it on the Parameters page "
+            msgs.append(f"{len(tif_nopx)} TIFF file(s) have no pixel size — set it in the Settings step "
                         "(TIFF calibration).")
         names = [os.path.basename(p) for p in sel]
         stems = [os.path.splitext(n_)[0] for n_ in names]
@@ -703,7 +971,7 @@ class DataPage(Page):
 
     def validate(self):
         if not self.selected_files():
-            return "No files are ticked on the Data page."
+            return "No files are ticked in the Files step."
         return None
 
     def engine_args(self, list_path):

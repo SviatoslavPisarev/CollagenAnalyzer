@@ -252,5 +252,5 @@ class ModelsPage(Page):
             return
         QSettings().setValue("models/last_path", p)
         self.model_saved.emit(p)
-        QMessageBox.information(self, "Model saved", f"Saved to\n{p}\n\nNew runs will apply it (Outputs page → "
+        QMessageBox.information(self, "Model saved", f"Saved to\n{p}\n\nNew runs will apply it (Outputs step → "
                                 "Quality check). Untick it there to run without it.")

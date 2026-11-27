@@ -19,6 +19,7 @@ import collagen_core as core
 from ml import fibermodel as FM
 from .common import DEFAULTS, NUMERIC, GROUPS
 from .widgets import Page, Card, button, hint, hbox
+from .widgets import ThemedCanvas
 from . import style
 
 
@@ -60,7 +61,7 @@ class ParamsPage(Page):
     changed = Signal()
 
     def __init__(self, data_page, parent=None):
-        super().__init__("2 · Parameters", "Defaults suit 60×/1.4 oil reflectance stacks of 2–4 mg/mL collagen. "
+        super().__init__("Analysis settings", "Defaults suit 60×/1.4 oil reflectance stacks of 2–4 mg/mL collagen. "
                          "Hover any field for an explanation. Use the preview on the right to check the fiber "
                          "mask before a long run.", scroll=False)
         self.data_page = data_page
@@ -236,7 +237,7 @@ class ParamsPage(Page):
         right.lay.addWidget(hbox(self.pv_thr_label, self.pv_thr, stretch_end=False))
         right.lay.addWidget(hbox(self.pv_use, self.pv_otsu, "stretch", self.pv_measure, stretch_end=False))
         self.fig = Figure(figsize=(7, 6.4), layout="constrained")
-        self.canvas = FigureCanvasQTAgg(self.fig)
+        self.canvas = ThemedCanvas(self.fig)
         self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         right.lay.addWidget(self.canvas, 1)
         self.pv_info = QLabel("Choose a file and click Load.")
