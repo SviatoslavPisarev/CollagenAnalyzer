@@ -26,6 +26,12 @@ The app's window is built with **PySide6** (Qt for Python) and **Shiboken6**, wh
   with any PySide6 version (`Start_Mac.command` / `Start_Windows.bat`) or rebuild the app yourself with
   `pyinstaller CollagenAnalyzer.spec` (see `README.md`).
 
+## Inter typeface
+
+The app's text uses **Inter** (version 4.1, the Inter Project Authors, <https://rsms.me/inter/>), bundled in
+`assets/fonts/` and licensed under the SIL Open Font License 1.1 — full text: [`assets/fonts/OFL-Inter.txt`](assets/fonts/OFL-Inter.txt).
+The font files are unmodified apart from conversion from WOFF2 to TTF.
+
 ## Other packages in the standalone app
 
 | Package | License |

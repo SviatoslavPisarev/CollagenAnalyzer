@@ -14,7 +14,7 @@ class OutputsPage(Page):
     changed = Signal()
 
     def __init__(self, data_page, parent=None):
-        super().__init__("3 · Outputs", "Choose where the results go and which figures to make. The spreadsheets "
+        super().__init__("Outputs", "Choose where the results go and which figures to make. The spreadsheets "
                          "(all numbers, settings and metadata) are always written; the Results & Plots page "
                          "can draw any other graph from them later.")
         self.data_page = data_page
@@ -48,7 +48,7 @@ class OutputsPage(Page):
         grp2.addButton(self.det_compact)
         gl.addWidget(self.det_full)
         gl.addWidget(self.det_compact)
-        gl.addWidget(hint("‘One file’ mode on the Data page always gives the detailed single-file report."))
+        gl.addWidget(hint("‘One file’ mode in the Files step always gives the detailed single-file report."))
         self.lay.addWidget(g)
 
         # --- figures
@@ -68,7 +68,7 @@ class OutputsPage(Page):
         rows = {grp_: 1 for grp_ in groups}
         for grp_ in groups:
             h = QLabel(grp_)
-            h.setStyleSheet("font-weight: 700; color: #155e6c;")
+            h.setObjectName("groupHead")
             grid.addWidget(h, 0, col_of[grp_])
         for key, label, group in FIGURES:
             cb = QCheckBox(label)
@@ -117,11 +117,11 @@ class OutputsPage(Page):
         gl = QVBoxLayout(g)
         gl.addWidget(hint("Every run checks each file for blur, uneven (dried) edges, saturation, dark tiles and "
                           "threshold sensitivity. Results: the ‘quality’ sheet of the summary spreadsheet, the QC "
-                          "column on the Data page and warnings in the log."))
+                          "column in the Files step and warnings in the log."))
         self.tiles = QCheckBox("Per-tile table (mmddyy_tiles.csv): the metrics of every tile of every analysed "
                                "image, for finding local patterns")
         self.tiles.setChecked(True)
-        self.tiles.setToolTip("Tile size = ‘Tile size’ on the Parameters page (default 13 µm).")
+        self.tiles.setToolTip("Tile size = ‘Tile size’ in the Settings step (default 13 µm).")
         self.qc_on = QCheckBox("Also apply my trained quality-check model:")
         self.qc_path = QLineEdit()
         self.qc_path.setReadOnly(True)
@@ -210,13 +210,13 @@ class OutputsPage(Page):
         if self.loc_custom.isChecked():
             p = self.loc_path.text().strip()
             if not p:
-                return "Choose the folder for the results (Outputs page), or save next to the data."
+                return "Choose the folder for the results (Outputs step), or save next to the data."
             try:
                 os.makedirs(p, exist_ok=True)
             except OSError as e:
                 return f"Cannot create the results folder: {e}"
         if self.qc_on.isChecked() and not os.path.isfile(self.qc_path.text()):
-            return ("The quality-check model file was not found (Outputs page): choose it again, or untick "
+            return ("The quality-check model file was not found (Outputs step): choose it again, or untick "
                     "‘apply my trained quality-check model’.")
         return None
 

@@ -4,8 +4,8 @@ import os
 from PySide6.QtCore import Qt, QSize, QUrl, QSettings
 from PySide6.QtGui import QIcon, QDesktopServices
 from PySide6.QtGui import QColor, QFont
-from PySide6.QtWidgets import (QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
-                               QStackedWidget, QTextBrowser, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow,
+                               QMessageBox, QPushButton, QStackedWidget, QTextBrowser, QVBoxLayout, QWidget)
 
 from .common import APP_NAME, APP_VERSION, resource, open_path
 from .page_data import DataPage
@@ -18,6 +18,7 @@ from .page_planner import PlannerPage
 from .page_patterns import PatternsPage
 from .page_fibermodel import FiberModelPage
 from .widgets import Page, button, hbox
+from . import style
 
 
 class HelpPage(Page):
@@ -26,8 +27,7 @@ class HelpPage(Page):
                          scroll=False)
         self.view = QTextBrowser()
         self.view.setOpenExternalLinks(True)
-        self.view.setStyleSheet("QTextBrowser { background: white; border: 1px solid #dde3e8; border-radius: 10px;"
-                                " padding: 14px 22px; }")
+        self.view.setObjectName("manual")
         docs = resource("docs")
         self.view.setSearchPaths([docs])
         path = os.path.join(docs, "manual.html")
@@ -44,14 +44,107 @@ class HelpPage(Page):
         self.footer.addStretch(1)
 
 
-# sidebar: sections (None = no heading) with their pages, in page order
-SECTIONS = [("ANALYSE", [("data", "1   Data"), ("params", "2   Parameters"), ("outputs", "3   Outputs"),
-                         ("run", "4   Run")]),
-            ("EXPLORE", [("plots", "◆   Results & Plots"), ("patterns", "▦   Patterns")]),
-            ("PLAN", [("planner", "◈   Experiment Planner")]),
-            ("MODELS", [("models", "◇   Quality check"), ("fibermodel", "◇   Fiber model")]),
-            (None, [("help", "?   Help")])]
-NAV = [p for _, pages in SECTIONS for p in pages]
+# sidebar: sections (None = no heading) with their entries; "setup" is the New-analysis flow (4 steps)
+SECTIONS = [("ANALYSE", [("setup", "New analysis", "folder"), ("plots", "Results & plots", "chart"),
+                         ("patterns", "Patterns", "grid")]),
+            ("PLAN", [("planner", "Experiment planner", "target")]),
+            ("TOOLS", [("models", "Quality check", "shield"), ("fibermodel", "Fiber model", "brush")]),
+            (None, [("help", "Help & manual", "help")])]
+STEPS = [("data", "Files"), ("params", "Settings"), ("outputs", "Outputs"), ("run", "Run")]
+# page index (as used by go()): the 4 setup steps first, then the other pages
+PAGE_KEYS = [k for k, _ in STEPS] + ["plots", "patterns", "planner", "models", "fibermodel", "help"]
+
+
+class StepBar(QWidget):
+    """Files → Settings → Outputs → Run → Results: where you are in a new analysis (clickable)."""
+
+    def __init__(self, on_step, on_results, parent=None):
+        super().__init__(parent)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(6)
+        self.btns = []
+        for i, (_, text) in enumerate(STEPS + [("results", "Results")]):
+            if i:
+                sep = QLabel("—")
+                sep.setObjectName("stepSep")
+                lay.addWidget(sep)
+            b = QPushButton(f"  {text}")
+            b.setObjectName("step")
+            b.setCursor(Qt.PointingHandCursor)
+            b.clicked.connect((lambda _=False, k=i: on_step(k)) if i < len(STEPS) else (lambda _=False: on_results()))
+            lay.addWidget(b)
+            self.btns.append(b)
+        self.current = 0
+        self.set_step(0)
+
+    def set_step(self, i):
+        self.current = i
+        self.refresh()
+
+    def refresh(self):
+        for k, b in enumerate(self.btns):
+            st = "active" if k == self.current else "done" if k < self.current else "wait"
+            b.setProperty("state", st)
+            b.setIcon(_number_icon("✓" if st == "done" else str(k + 1) if k < len(STEPS) else "→", st))
+            b.setIconSize(QSize(20, 20))
+            b.style().unpolish(b)
+            b.style().polish(b)
+
+
+def _number_icon(text, state):
+    """Round badge with a number (or ✓) for the step bar."""
+    from PySide6.QtGui import QPainter, QPixmap, QPen
+    pm = QPixmap(40, 40)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    if state == "active":
+        bg, fg = QColor(style.ON_ACCENT), QColor(style.ACCENT)
+    elif state == "done":
+        bg, fg = QColor(style.OK_BG), QColor(style.OK)
+    else:
+        bg, fg = QColor(style.SUNKEN), QColor(style.TEXT2)
+    p.setPen(Qt.NoPen)
+    p.setBrush(bg)
+    p.drawEllipse(0, 0, 40, 40)
+    f = QFont(QApplication.font())
+    f.setPixelSize(20)
+    f.setBold(True)
+    p.setFont(f)
+    p.setPen(QPen(fg))
+    p.drawText(pm.rect(), Qt.AlignCenter, text)
+    p.end()
+    pm.setDevicePixelRatio(2)
+    return QIcon(pm)
+
+
+class SetupFlow(QWidget):
+    """The New-analysis flow: step bar on top, the four setup pages below."""
+
+    def __init__(self, pages, on_results, parent=None):
+        super().__init__(parent)
+        self.setObjectName("page")
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(26, 16, 26, 0)
+        lay.setSpacing(0)
+        top = QHBoxLayout()
+        k = QLabel("New analysis")
+        k.setObjectName("pageKicker")
+        top.addWidget(k)
+        top.addStretch(1)
+        self.bar = StepBar(self.set_step, on_results)
+        top.addWidget(self.bar)
+        lay.addLayout(top)
+        self.stack = QStackedWidget()
+        for pg in pages:
+            pg.layout().setContentsMargins(0, 6, 0, 16)
+            self.stack.addWidget(pg)
+        lay.addWidget(self.stack, 1)
+
+    def set_step(self, i):
+        self.stack.setCurrentIndex(i)
+        self.bar.set_step(i)
 
 
 class MainWindow(QMainWindow):
@@ -72,42 +165,69 @@ class MainWindow(QMainWindow):
         # sidebar
         side = QWidget()
         side.setObjectName("sidebar")
-        side.setFixedWidth(220)
+        side.setAttribute(Qt.WA_StyledBackground, True)
+        side.setFixedWidth(228)
         sl = QVBoxLayout(side)
-        sl.setContentsMargins(0, 0, 0, 0)
-        t = QLabel("Collagen\nReflectance Analyzer")
+        sl.setContentsMargins(0, 18, 0, 14)
+        sl.setSpacing(0)
+        head = QHBoxLayout()
+        head.setContentsMargins(18, 0, 12, 16)
+        head.setSpacing(10)
+        self.logo = QLabel()
+        self.logo.setObjectName("logoMark")
+        self.logo.setFixedSize(34, 34)
+        self.logo.setAlignment(Qt.AlignCenter)
+        head.addWidget(self.logo)
+        tl = QVBoxLayout()
+        tl.setSpacing(0)
+        t = QLabel("Collagen Analyzer")
         t.setObjectName("appTitle")
-        s = QLabel("Fiber density · pores · alignment")
+        s = QLabel("Matsui Lab")
         s.setObjectName("appSub")
-        sl.addWidget(t)
-        sl.addWidget(s)
+        tl.addWidget(t)
+        tl.addWidget(s)
+        head.addLayout(tl, 1)
+        sl.addLayout(head)
         self.nav = QListWidget()
         self.nav.setObjectName("nav")
-        self.row_of_page, self.page_of_row = [], {}
-        for title, pages in SECTIONS:
+        self.nav.setIconSize(QSize(18, 18))
+        self.nav.setFocusPolicy(Qt.NoFocus)
+        self.row_of_key, self.key_of_row, self.icon_of_row, self.headings = {}, {}, {}, []
+        for title, entries in SECTIONS:
             if title:
                 h = QListWidgetItem(title)
                 h.setFlags(Qt.NoItemFlags)                 # heading: not selectable
-                f = QFont(h.font()); f.setPointSizeF(max(f.pointSizeF() * 0.75, 8)); f.setBold(True)
-                f.setLetterSpacing(QFont.PercentageSpacing, 112)
+                f = QFont(h.font()); f.setPointSizeF(max(f.pointSizeF() * 0.78, 8)); f.setBold(True)
+                f.setLetterSpacing(QFont.PercentageSpacing, 110)
                 h.setFont(f)
-                h.setForeground(QColor("#7fa3ad"))
-                h.setSizeHint(QSize(200, 30))
+                h.setSizeHint(QSize(200, 34))
                 self.nav.addItem(h)
-            elif self.nav.count():
+                self.headings.append(h)
+            else:
                 sp = QListWidgetItem("")
                 sp.setFlags(Qt.NoItemFlags)
-                sp.setSizeHint(QSize(200, 12))
+                sp.setSizeHint(QSize(200, 14))
                 self.nav.addItem(sp)
-            for key, text in pages:
+            for key, text, ic in entries:
                 it = QListWidgetItem(text)
-                it.setSizeHint(QSize(200, 42))
-                self.page_of_row[self.nav.count()] = len(self.row_of_page)
-                self.row_of_page.append(self.nav.count())
+                it.setSizeHint(QSize(200, 38))
+                self.row_of_key[key] = self.nav.count()
+                self.key_of_row[self.nav.count()] = key
+                self.icon_of_row[self.nav.count()] = ic
                 self.nav.addItem(it)
         sl.addWidget(self.nav, 1)
-        foot = QLabel(f"Version {APP_VERSION}\nMatsui Lab · Hunter College")
+        self.theme_btn = QPushButton()
+        self.theme_btn.setObjectName("themeToggle")
+        self.theme_btn.setCursor(Qt.PointingHandCursor)
+        self.theme_btn.setToolTip("Switch between the day and the night look (remembered)")
+        self.theme_btn.clicked.connect(self.toggle_theme)
+        tb = QHBoxLayout()
+        tb.setContentsMargins(14, 8, 14, 6)
+        tb.addWidget(self.theme_btn)
+        sl.addLayout(tb)
+        foot = QLabel(f"Version {APP_VERSION} · Hunter College")
         foot.setObjectName("navFoot")
+        foot.setContentsMargins(20, 2, 12, 0)
         sl.addWidget(foot)
         root.addWidget(side)
 
@@ -123,9 +243,13 @@ class MainWindow(QMainWindow):
         self.models = ModelsPage()
         self.fibermodel = FiberModelPage(self.data, self.params)
         self.help = HelpPage()
-        for p in (self.data, self.params, self.outputs, self.run, self.plots, self.patterns, self.planner, self.models,
-                  self.fibermodel, self.help):
-            self.stack.addWidget(p)
+        self.setup = SetupFlow((self.data, self.params, self.outputs, self.run), lambda: self.go(4))
+        self.page_widget = {"setup": self.setup, "plots": self.plots, "patterns": self.patterns,
+                            "planner": self.planner, "models": self.models, "fibermodel": self.fibermodel,
+                            "help": self.help}
+        for w in self.page_widget.values():
+            self.stack.addWidget(w)
+        self.data.ready.run_now.connect(lambda: self.go(3))
         self.models.model_saved.connect(self.outputs.set_qc_model)
         self.fibermodel.model_saved.connect(self.params.set_fiber_model)
         # back / next buttons on the setup pages
@@ -133,7 +257,7 @@ class MainWindow(QMainWindow):
             if i > 0:
                 p.footer.addWidget(button("← Back", slot=lambda _=False, k=i - 1: self.go(k)))
             p.footer.addStretch(1)
-            p.footer.addWidget(button(f"Next: {NAV[i + 1][1].split('   ')[1]} →", "primary",
+            p.footer.addWidget(button(f"Continue to {STEPS[i + 1][1].lower()} →", "primary",
                                       slot=lambda _=False, k=i + 1: self.go(k)))
         self.run.footer.addWidget(button("← Back", slot=lambda: self.go(2)))
         self.run.footer.addStretch(1)
@@ -143,18 +267,59 @@ class MainWindow(QMainWindow):
         self.nav.currentRowChanged.connect(self._nav_changed)
         self.run.go_plots = self.show_results
         self.run.run_finished.connect(self._run_done)
+        style.on_theme_change(self._theme_changed)
+        self._theme_changed()
         self.go(0)
         st = QSettings()
         geo = st.value("window/geometry")
         if geo is not None:
             self.restoreGeometry(geo)
 
+    # ------------------------------------------------------------------ navigation
     def go(self, i):
-        self.nav.setCurrentRow(self.row_of_page[i])
+        """Show page i of PAGE_KEYS (0-3 = the setup steps)."""
+        key = PAGE_KEYS[i]
+        if i < len(STEPS):
+            self.setup.set_step(i)
+            key = "setup"
+        self.nav.setCurrentRow(self.row_of_key[key])
 
     def _nav_changed(self, row):
-        if row in self.page_of_row:
-            self.stack.setCurrentIndex(self.page_of_row[row])
+        key = self.key_of_row.get(row)
+        if key:
+            self.stack.setCurrentWidget(self.page_widget[key])
+        self._recolor_nav()
+
+    # ------------------------------------------------------------------ theme
+    def toggle_theme(self):
+        style.set_mode("night" if style.MODE == "day" else "day")
+
+    def _theme_changed(self):
+        night = style.MODE == "night"
+        self.theme_btn.setText("  Day mode" if night else "  Night mode")
+        self.theme_btn.setIcon(style.icon("sun" if night else "moon", style.TEXT2, 16))
+        self.logo.setPixmap(style.icon("logo", style.ON_ACCENT, 22).pixmap(22, 22))
+        for h in self.headings:
+            h.setForeground(QColor(style.NAV_HEAD))
+        self._recolor_nav()
+        self.setup.bar.refresh()
+        from .widgets import ThemedCanvas
+        for c in self.findChildren(ThemedCanvas):
+            c.draw_idle()
+        for p in (self.data, self.params, self.outputs, self.run, self.plots, self.patterns, self.planner,
+                  self.models, self.fibermodel, self.help):
+            fn = getattr(p, "on_theme", None)
+            if fn:
+                try:
+                    fn()
+                except Exception:
+                    pass
+
+    def _recolor_nav(self):
+        cur = self.nav.currentRow()
+        for row, ic in self.icon_of_row.items():
+            col = style.NAV_SEL_TEXT if row == cur else style.NAV_TEXT
+            self.nav.item(row).setIcon(style.icon(ic, col, 18))
 
     def _run_done(self, outputs):
         tiles = [p for k, p in outputs if k == "tiles"]

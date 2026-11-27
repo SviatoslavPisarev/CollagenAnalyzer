@@ -20,6 +20,7 @@ from ml import planner as PL
 import nc_physics as NP
 from .page_plots import METRICS
 from .widgets import Page, button, hint, banner, hbox
+from .widgets import ThemedCanvas
 from . import style
 
 GOALS = [("order_S", "Alignment — order parameter S"), ("file_order_S_pooled", "Alignment — S of all fiber pixels pooled"),
@@ -55,7 +56,7 @@ def read_per_file(path):
 
 class PlannerPage(Page):
     def __init__(self, parent=None):
-        super().__init__("Experiment Planner", "Learns how the AMF and nanocage settings change a structure metric "
+        super().__init__("Experiment planner", "Learns how the AMF and nanocage settings change a structure metric "
                          "(after vs before AMF, per sample) and suggests which conditions to test next.",
                          scroll=False)
         self.pf = pd.DataFrame()
@@ -102,18 +103,18 @@ class PlannerPage(Page):
 
         g = QGroupBox("2. Goal")
         f = QFormLayout(g)
-        self.metric = QComboBox()
+        self.metric_cb = QComboBox()
         for k, lab in GOALS:
-            self.metric.addItem(lab, k)
+            self.metric_cb.addItem(lab, k)
         self.change = QComboBox()
         self.change.addItem("after − before", "diff")
         self.change.addItem("% change after AMF", "pct")
         self.direction = QComboBox()
         self.direction.addItem("as large as possible", "increase")
         self.direction.addItem("as small as possible", "decrease")
-        for w in (self.metric, self.change):
+        for w in (self.metric_cb, self.change):
             w.currentIndexChanged.connect(self.rebuild)
-        f.addRow("Metric", self.metric)
+        f.addRow("Metric", self.metric_cb)
         f.addRow("Response", self.change)
         f.addRow("Make it", self.direction)
         cl.addWidget(g)
@@ -245,7 +246,7 @@ class PlannerPage(Page):
             c.currentIndexChanged.connect(self.draw_map)
         l.addWidget(hbox(QLabel("x"), self.map_x, QLabel("y"), self.map_y))
         self.map_fig = Figure(figsize=(8, 4.5), layout="constrained")
-        l.addWidget(FigureCanvasQTAgg(self.map_fig), 1)
+        l.addWidget(ThemedCanvas(self.map_fig), 1)
         l.addWidget(hint("Left: predicted response; right: its uncertainty (SD). Other settings are held at the best "
                          "predicted values. Dots = experiments done, stars = suggestions."))
         self.tabs.addTab(w, "Response map")
@@ -253,7 +254,7 @@ class PlannerPage(Page):
         w = QWidget()
         l = QVBoxLayout(w)
         self.eff_fig = Figure(figsize=(8, 5), layout="constrained")
-        l.addWidget(FigureCanvasQTAgg(self.eff_fig), 1)
+        l.addWidget(ThemedCanvas(self.eff_fig), 1)
         l.addWidget(hint("Each panel: predicted response (± 2 SD band) when one setting changes and the others stay "
                          "at the best predicted values; dots are all experiments (their other settings may differ). Relevance = how quickly the response changes with that "
                          "setting (1 / fitted length scale)."))
@@ -264,7 +265,7 @@ class PlannerPage(Page):
         self.chk_label = hint("")
         l.addWidget(self.chk_label)
         self.chk_fig = Figure(figsize=(6, 5), layout="constrained")
-        l.addWidget(FigureCanvasQTAgg(self.chk_fig), 1)
+        l.addWidget(ThemedCanvas(self.chk_fig), 1)
         self.tabs.addTab(w, "Model check")
         # data
         self.data_table = QTableWidget(0, 0)
@@ -321,7 +322,7 @@ class PlannerPage(Page):
         """Pair the files into experiments for the chosen metric; update the 'In data' column."""
         notes = []
         if len(self.pf):
-            self.exp, notes = PL.build_experiments(self.pf, self.metric.currentData(), self.change.currentData(),
+            self.exp, notes = PL.build_experiments(self.pf, self.metric_cb.currentData(), self.change.currentData(),
                                                    self.excl_qc.isChecked(),
                                                    "subtract" if self.sub_sham.isChecked() else "none")
         else:
@@ -401,7 +402,7 @@ class PlannerPage(Page):
         return PL.Space(vars_)
 
     def _unit(self):
-        lab = self.metric.currentText().split(" — ")[-1]
+        lab = self.metric_cb.currentText().split(" — ")[-1]
         return f"% change of {lab}" if self.change.currentData() == "pct" else f"Δ {lab}"
 
     # ------------------------------------------------------------------ actions

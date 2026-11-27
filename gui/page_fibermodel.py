@@ -163,7 +163,7 @@ class FiberModelPage(Page):
     def __init__(self, data_page, params_page, parent=None):
         super().__init__("Fiber model", "Teach the app which pixels are fiber: paint a few strokes on fibers and on "
                          "background, train, check the result, correct where it is wrong, train again. The model "
-                         "then replaces the ridge threshold (Parameters page).", scroll=False)
+                         "then replaces the ridge threshold (Settings step).", scroll=False)
         self.data_page, self.params_page = data_page, params_page
         self.ann = {}          # (path, t, z) -> dict(labels, px, name, flat (cached or None))
         self.cur = None        # current image dict
@@ -194,7 +194,7 @@ class FiberModelPage(Page):
         self.slice.setRange(0, 0)
         self.load_btn = button("Load image", "primary", slot=self.load_image)
         gl.addWidget(hbox(QLabel("Image no."), self.slice, self.load_btn))
-        self.info = hint("Files come from the Data page (ticked files). Use several images: different samples, "
+        self.info = hint("Files come from the Files step (ticked files). Use several images: different samples, "
                          "depths, before and after AMF.")
         gl.addWidget(self.info)
         cl.addWidget(g)
@@ -340,7 +340,7 @@ class FiberModelPage(Page):
     def load_image(self):
         path = self.file.currentData()
         if not path:
-            QMessageBox.information(self, "Fiber model", "Tick files on the Data page, or Browse for an image.")
+            QMessageBox.information(self, "Fiber model", "Tick files in the Files step, or Browse for an image.")
             return
         self._store_current()
         self._run(Task(self._load_job, path, self.slice.value(), self._P()), self._loaded,
@@ -563,6 +563,6 @@ class FiberModelPage(Page):
         QSettings().setValue("fibermodel/last_path", p)
         self.params_page.fm_cut.setValue(self.cut.value() / 100)
         self.model_saved.emit(p)
-        QMessageBox.information(self, "Model saved", f"Saved to\n{p}\n\nThe Parameters page now uses it (Fiber "
+        QMessageBox.information(self, "Model saved", f"Saved to\n{p}\n\nThe Settings step now uses it (Fiber "
                                 "threshold → Trained fiber model, cutoff {:.2f}). Switch back to Otsu there at any "
                                 "time.".format(self.cut.value() / 100))
