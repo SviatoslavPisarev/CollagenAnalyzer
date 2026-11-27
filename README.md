@@ -198,6 +198,12 @@ them on every push (**Actions → Tests**).
 | `THIRD_PARTY_NOTICES.md`, `licenses/` | licenses of the packages inside the standalone app (PySide6/Qt: LGPL-3.0) |
 | `.gitignore` | keeps Python cache files (`__pycache__`) and `.DS_Store` out of the repository |
 
+## How this app was made
+
+The code of this app was built using **Claude**, Anthropic's AI assistant, from the author's requirements, design
+choices and feedback. As with any analysis software, check the results on your own data; the tests in `tests/` and the
+user manual describe what each measurement does.
+
 ## License
 
 The app's code is released under the [MIT License](LICENSE). The standalone app also contains third-party
