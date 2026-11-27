@@ -4,12 +4,23 @@
 # Result: dist/Collagen Analyzer.app (Mac) or dist/CollagenAnalyzer/CollagenAnalyzer.exe (Windows).
 # Usually built automatically on GitHub (.github/workflows/build.yml).
 import sys
-from PyInstaller.utils.hooks import collect_all, collect_submodules
+from PyInstaller.utils.hooks import collect_all, collect_submodules, copy_metadata
 
-datas = [("docs", "docs"), ("assets", "assets")]
+# app files + licenses: the app's MIT license, third-party notices and the LGPL/GPL texts for PySide6/Qt
+datas = [("docs", "docs"), ("assets", "assets"), ("LICENSE", "."), ("THIRD_PARTY_NOTICES.md", "."),
+         ("licenses", "licenses")]
+# package metadata (*.dist-info, with each package's own license files where it ships them)
+for pkg in ("PySide6", "PySide6_Essentials", "PySide6_Addons", "shiboken6", "numpy", "scipy", "scikit-image",
+            "scikit-learn", "pandas", "matplotlib", "openpyxl", "nd2", "tifffile", "joblib"):
+    try:
+        datas += copy_metadata(pkg)
+    except Exception:
+        pass
 binaries = []
 hiddenimports = collect_submodules("skimage.filters") + collect_submodules("skimage.morphology") + \
-    collect_submodules("skimage.feature") + ["matplotlib.backends.backend_qtagg", "matplotlib.backends.backend_agg",
+    collect_submodules("skimage.feature") + collect_submodules("skimage.registration") + [
+                                             "gelstats", "changemap", "nc_physics",
+                                             "matplotlib.backends.backend_qtagg", "matplotlib.backends.backend_agg",
                                              "openpyxl", "collagen_core", "cloudfiles", "ml", "ml.qc", "joblib",
                                              "sklearn.ensemble", "sklearn.impute", "sklearn.pipeline",
                                              "sklearn.model_selection", "sklearn.metrics",

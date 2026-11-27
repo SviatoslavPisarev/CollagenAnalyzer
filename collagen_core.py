@@ -6,7 +6,9 @@ Runs on every .nd2 (or .tif/.tiff) file in a folder: z-stacks, time-lapses (also
 time-lapses of z-stacks) and single images. File names must start
 with mmddyy_##_ (date_sample_), e.g. 102126_10_Collagen_..._1003.nd2.
 Files whose name contains "AMF" are labelled "After AMF", all others "Before AMF"
-(change with --after-pattern).
+(change with --after-pattern). Controls: _sham_ marks the second image of a sham gel (same handling
+and wait, no field: "After sham"); _noNC_ (or _NC_0nM_) marks a gel without nanocages. Every file
+gets an "arm": NC + AMF, AMF only (no NC), sham (NC, no field) or sham, no NC (see gelstats.py).
 Also read from the name when present: _NC_0.5nM_ (theoretical local nanocage concentration),
 _premixed_ or _inc45min_ (NCs mixed in before gelation, or incubated on the gel for that time),
 _10Vpp_ (AMF Vp-p set on the instrument), _8.5V_ (measured AMF voltage),
@@ -30,7 +32,13 @@ the folder holds several dates, "other" if no name has a date):
   mmddyy_summary.xlsx         spreadsheet: "per slice" (every analysed image of every file:
                               all metrics, all settings, file and per-image metadata),
                               "per file" (mean and SD per file), "settings", "quality" (one row
-                              per file: QC status and flags, see ml/qc.py)
+                              per file: QC status and flags, see ml/qc.py), "changes" (each After
+                              file vs its sample's Before file(s): key metrics, % change, % change
+                              minus the matched sham control), "statistics" and "arm comparisons"
+                              (gels as replicates, see gelstats.py), "registration" (before/after
+                              image alignment per sample)
+  mmddyy_tile_changes.csv     tile-by-tile change after registration (same position in the gel)
+  change_map_mmddyy_##.png    per sample: registered before/after images + maps of the local change
   mmddyy_tiles.csv            per-tile table: the metrics of every --tile-um tile of every analysed
                               image, with its position and a dark/blurred flag (not with --no-tiles)
   <file name>/                one folder per file (default; not with --averages-only):
@@ -106,12 +114,14 @@ except ImportError:                      # collagen_core.py copied on its own, w
     from ml import qc as QC
 from ml import fibermodel as FM
 import cloudfiles as CF
+import gelstats as GS
+import changemap as CM
 
 ANGLE_BINS = 36                      # 5-degree bins over -90..90 deg
-BEFORE_COLOR, AFTER_COLOR = "#3b6fb6", "#d9622b"
-EXTRA_COLORS = ["#2a9d5c", "#8e44ad", "#c0392b", "#7f8c8d"]
+BEFORE_COLOR, AFTER_COLOR, SHAM_COLOR = "#3b6fb6", "#d9622b", "#7f8c8d"
+EXTRA_COLORS = ["#2a9d5c", "#8e44ad", "#c0392b", "#e0a800"]
 LABEL_COLS = ["date", "sample", "file", "collagen_mg_ml", "nc_conc_nM", "nc_mixing", "nc_incubation_time",
-              "nc_incubation_time_s", "other", "condition", "amf_freq_hz", "amf_time", "amf_time_s",
+              "nc_incubation_time_s", "other", "condition", "arm", "amf_freq_hz", "amf_time", "amf_time_s",
               "amf_vpp_set", "amf_v_measured", "amf_app_set", "amf_coil_turns", "amf_b_mT", "amf_b_type",
               "amf_b_peak_mT", "amf_ampere_turns_pp",
               "series", "t_index", "time_s", "z_index", "z_um", "threshold", "qc_status", "qc_flags"]
@@ -192,6 +202,7 @@ FIGURE_KEYS = {
     "pore_dist": "mmddyy_pore_size_distribution.png",
     "fiber_dist": "mmddyy_fiber_size_distribution.png",
     "length_dist": "mmddyy_fiber_length_distribution.png",
+    "change_map": "change_map_mmddyy_##.png (registered before/after, local change per tile)",
 }
 FIG = dict(keys=set(FIGURE_KEYS), fmt="png", dpi=None, gui=False)
 # values entered by hand in the app (--metadata): {"fields": [{key, label, unit, type}], "files": {name: {...}}}
@@ -521,15 +532,27 @@ def check_settings(names, data, what):
 
 
 # ----------------------------------------------------------------------------- names
+SHAM_RE, NONC_RE = GS.SHAM_RE, GS.NONC_RE
+
+
+def parse_sham(name):
+    """True if the file is the second image of a sham control (_sham_: same handling and wait, no field)."""
+    return bool(SHAM_RE.search(name_core(name)))
+
+
 def parse_name(name, after_pattern):
-    """Return (date 'mmddyy', sample 'mmddyy_##', condition)."""
+    """Return (date 'mmddyy', sample 'mmddyy_##', condition).
+    condition: 'After sham' (_sham_ in the name), 'After AMF' (after_pattern) or 'Before AMF'."""
     m = re.match(r"^(\d{6})_(\d+)_", name)
     if m:
         date, sample = m.group(1), f"{m.group(1)}_{m.group(2)}"
     else:
         log(f"  warning: '{name}' does not start with mmddyy_##_; grouped as 'other'")
         date, sample = "other", name
-    cond = "After AMF" if re.search(after_pattern, name_core(name), re.I) else "Before AMF"
+    if parse_sham(name):
+        cond = "After sham"
+    else:
+        cond = "After AMF" if re.search(after_pattern, name_core(name), re.I) else "Before AMF"
     return date, sample, cond
 
 
@@ -691,10 +714,11 @@ def parse_duration(txt):
 def parse_nc(name):
     """Theoretical local nanocage concentration (nM) from a file name: _NC_0.5nM_, _NC0.5nM_,
     _NCs_500pM_, _NC_0p5nM_, _NC_2uM_ (fM, pM, nM, uM/µM, mM, M; case-insensitive).
+    _noNC_ / _no-NCs_ (a gel without nanocages, e.g. the AMF-only control) gives 0.
     Returns a float (nM) or None."""
     m = NC_RE.search(name_core(name))
     if not m:
-        return None
+        return 0.0 if NONC_RE.search(name_core(name)) else None
     return float(f"{_num(m.group(1)) * _MOLAR[m.group(2).lower()]:.10g}")
 
 
@@ -779,15 +803,16 @@ def sample_collagen(names, data):
 
 
 def order_files(names, data):
-    """Before AMF first, then After AMF, then by name."""
+    """Before AMF first, then After AMF / After sham, then by name."""
     return sorted(names, key=lambda n: (data[n]["condition"] != "Before AMF", n))
 
 
 def colors_for(names, data):
-    """Blue = before, orange = after; extra files of the same condition get other colors."""
+    """Blue = before, orange = after AMF, grey = after sham; extra files of the same condition get other colors."""
     col, used, k = {}, set(), 0
     for n in names:
-        c = BEFORE_COLOR if data[n]["condition"] == "Before AMF" else AFTER_COLOR
+        cnd = data[n]["condition"]
+        c = BEFORE_COLOR if cnd == "Before AMF" else SHAM_COLOR if GS.is_sham(cnd) else AFTER_COLOR
         if c in used:
             c = EXTRA_COLORS[k % len(EXTRA_COLORS)]; k += 1
         used.add(c); col[n] = c
@@ -1802,11 +1827,99 @@ def sample_figure(smp, names, data, per, P, out):
     ap.legend(loc="lower center", bbox_to_anchor=(0.5, -0.32), frameon=False, fontsize=9)
     amf = sample_amf(names, data)
     col_t = ", ".join(x for x in (sample_collagen(names, data), sample_nc(names, data)) if x)
-    fig.suptitle(f"Sample {smp}" + (f", {col_t}" if col_t else "") + ": before vs after AMF"
+    what = "AMF" if any(data[n]["condition"] == "After AMF" for n in names) else \
+        "sham" if any(GS.is_sham(data[n]["condition"]) for n in names) else "AMF"
+    fig.suptitle(f"Sample {smp}" + (f", {col_t}" if col_t else "") + f": before vs after {what}"
                  + (f" ({amf})" if amf else "")
                  + "\nfiber thresholds: " + ", ".join(f"{file_label(data[n])} {data[n]['thr']:.3f}" for n in names),
                  fontsize=14)
     savefig(fig, os.path.join(out, f"sample_{smp}.png"), 100)
+
+
+def sample_registration(smp, names, data, tiles, out, draw=True):
+    """Register every After file of a sample onto its (first) Before file and pair their tiles.
+    Returns (registration rows, tile-change frame). Draws change_map_<sample>.png when draw is True."""
+    bef = [n for n in names if not GS.is_after(data[n]["condition"])]
+    aft = [n for n in names if GS.is_after(data[n]["condition"])]
+    if not bef or not aft:
+        return [], pd.DataFrame()
+    nb = bef[0]
+    db = data[nb]
+    tb = CM.file_tiles(tiles, nb) if len(tiles) else pd.DataFrame()
+    reg_rows, tcs, panels = [], [], []
+    for na in aft:
+        da = data[na]
+        r = CM.register(db["thumb"], da["thumb"], db["valid"], da["valid"], db["px"], db["G"]["sigma_bg"] * db["px"])
+        if abs(da["px"] - db["px"]) > 1e-6 * db["px"]:
+            r["status"] = "pixel size differs"
+        tc = pd.DataFrame()
+        if len(tb) and r["status"] in CM.SAME_FIELD:
+            tc = CM.tile_changes(tb, CM.file_tiles(tiles, na), r["shift_y_px"], r["shift_x_px"], db["G"]["tile"])
+            if len(tc):
+                tc.insert(0, "after_file", na)
+                tc.insert(0, "before_file", nb)
+                tc.insert(0, "arm", da["arm"])
+                tc.insert(0, "sample", smp)
+                tc.insert(0, "date", da["date"])
+                tcs.append(tc)
+        row = dict(date=da["date"], sample=smp, arm=da["arm"], before_file=nb, after_file=na,
+                   **{k: (round(v, 4) if isinstance(v, float) else v) for k, v in r.items()},
+                   n_tile_pairs=len(tc))
+        for m in ("order_S", "area_frac_pct", "pore_lt_mean_um"):
+            c = tc[f"{m}_change"] if len(tc) and f"{m}_change" in tc else pd.Series(dtype=float)
+            row[f"tile_{m}_change_mean"] = float(c.mean()) if c.notna().any() else np.nan
+            row[f"tile_{m}_change_sd"] = float(c.std()) if c.notna().sum() > 1 else np.nan
+        reg_rows.append(row)
+        log(f"  registration {na.split('_')[-1]} -> {nb.split('_')[-1]}: shift x {r['shift_x_um']:.2f} µm, "
+            f"y {r['shift_y_um']:.2f} µm, r = {r['r_registered']:.2f} (unshifted {r['r_unshifted']:.2f}, "
+            f"z = {r['z']:.1f}): {r['status']}")
+        panels.append((na, r, tc))
+    if draw and panels:
+        change_map_figure(smp, nb, panels, data, tb, out)
+    return reg_rows, (pd.concat(tcs, ignore_index=True) if tcs else pd.DataFrame())
+
+
+def change_map_figure(smp, nb, panels, data, tb, out):
+    """Per After file: Before, After moved onto Before, overlay, and tile maps of the local change."""
+    db = data[nb]
+    ncol = 3 + len(CM.MAP_METRICS)
+    fig, axs = plt.subplots(len(panels), ncol, figsize=(4.2 * ncol, 4.4 * len(panels)), squeeze=False,
+                            layout="constrained")
+    px = db["px"]
+    ext = [0, db["thumb"].shape[1] * px, db["thumb"].shape[0] * px, 0]
+    for row, (na, r, tc) in zip(axs, panels):
+        da = data[na]
+        show_image(row[0], db["thumb"], px, f"Before ({nb.split('_')[-1]})\n{db['thumb_title']}")
+        sh = (r["shift_y_px"], r["shift_x_px"]) if np.isfinite(r["shift_y_px"]) else (0, 0)
+        reg = CM.registered_after(da["thumb"], sh)
+        ok = np.isfinite(reg)
+        lo, hi = (np.percentile(reg[ok], [1, 99.5]) if ok.any() else (0, 1))
+        row[1].imshow(reg, cmap="gray", vmin=lo, vmax=hi, extent=ext)
+        row[1].set_title(f"{condition_text(da)} ({na.split('_')[-1]})\nmoved onto Before: "
+                         f"x {r['shift_x_um']:+.2f} µm, y {r['shift_y_um']:+.2f} µm", fontsize=9)
+        row[1].title.set_color(SHAM_COLOR if GS.is_sham(da["condition"]) else AFTER_COLOR)
+        row[2].imshow(CM.overlay_rgb(db["thumb"], reg, db["valid"]), extent=ext)
+        warn = "" if r["status"] == "registered" else f"\n⚠ {r['status']}"
+        row[2].set_title(f"Overlay: green before, magenta after\nr = {r['r_registered']:.2f} "
+                         f"(unshifted {r['r_unshifted']:.2f}, z = {r['z']:.0f}){warn}", fontsize=9)
+        for a in row[:3]:
+            a.set_xlabel("x (µm)"); a.set_ylabel("y (µm)")
+        t_um = db["G"]["tile"] * px
+        for a, (m, lab, cmap) in zip(row[3:], CM.MAP_METRICS):
+            g = CM.change_grid(tc, m, tb)
+            v = g[np.isfinite(g)]
+            lim = float(np.percentile(np.abs(v), 98)) if v.size else 1.0
+            lim = lim if lim > 0 else 1.0
+            im = a.imshow(g, cmap=cmap, vmin=-lim, vmax=lim, interpolation="nearest",
+                          extent=[0, g.shape[1] * t_um, g.shape[0] * t_um, 0])
+            a.set_xlim(ext[0], ext[1]); a.set_ylim(ext[2], ext[3])
+            fig.colorbar(im, ax=a, shrink=0.75, label=f"Δ {lab}")
+            mean = f"mean {np.nanmean(v):+.3g}" if v.size else "no tile pairs"
+            a.set_title(f"Local change: {lab}\n(after − before, {t_um:.0f} µm tiles; {mean})", fontsize=9)
+            a.set_xlabel("x (µm)"); a.set_ylabel("y (µm)")
+            a.set_facecolor("#eeeeee")
+    fig.suptitle(f"Sample {smp}: before vs after, registered (same place in the gel)", fontsize=13)
+    savefig(fig, os.path.join(out, f"change_map_{smp}.png"), 100)
 
 
 def panel_title(smp, names, data):
@@ -2056,16 +2169,33 @@ def _clean(df):
     return df
 
 
-def write_spreadsheet(base, per_df, settings_rows, quality=None):
-    """Write <base>.xlsx with four sheets:
+def _stat_sheets(pf, src_col=None):
+    """'changes', 'statistics' and 'arm comparisons' frames from a per-file table (gelstats.py)."""
+    try:
+        f = pf.copy()
+        if src_col and src_col in f:
+            f["_src"] = f[src_col].astype(str)
+        ch, st, cp = GS.run_tables(f)
+        return [("changes", ch), ("statistics", st), ("arm comparisons", cp)]
+    except Exception as e:                    # statistics are an add-on: never stop the run
+        log(f"  note: statistics not computed: {e}")
+        return []
+
+
+def write_spreadsheet(base, per_df, settings_rows, quality=None, registration=None, stats=False):
+    """Write <base>.xlsx with these sheets:
       per slice  one row per analysed image of every file: all metrics, then every setting
                  (set_... for all files, file_... for that file), then the file metadata
                  (meta_...) and the per-image metadata (slice_...)
       per file   mean and SD of every metric per file
       settings   parameter / value / description
       quality    one row per file: QC status, flags, model probability and the QC features (ml/qc.py)
+      changes, statistics, arm comparisons   (stats=True, when there are After files) each After
+                 file vs its Before file(s), control-corrected change, per-arm statistics (gelstats.py)
+      registration  (when given) before/after alignment per sample (changemap.py)
     Falls back to CSV files if openpyxl is not installed.
-    Returns (path written, per-slice frame, per-file frame, settings frame, quality frame)."""
+    Returns (path written, per-slice frame, per-file frame, settings frame, quality frame, registration frame)."""
+    reg = registration if registration is not None else pd.DataFrame()
     q = quality if quality is not None else pd.DataFrame(columns=["file", "qc_status", "qc_flags"])
     st = pd.DataFrame(settings_rows, columns=["parameter", "value", "description"])
     glob_set = {p: v for p, v, _ in settings_rows if ":" not in p}
@@ -2099,33 +2229,40 @@ def write_spreadsheet(base, per_df, settings_rows, quality=None):
         pf[f"{c}_mean"] = mean[c]
         if c not in ("file_order_S_pooled", "file_mean_angle_deg_pooled", "threshold"):
             pf[f"{c}_sd"] = sd[c]
+    extra = [(n, f, (1, 1)) for n, f in (_stat_sheets(pf) if stats else []) if len(f)]
+    if len(reg):
+        extra.append(("registration", reg, (1, 2)))
     try:
         import openpyxl  # noqa: F401
         path = base + ".xlsx"
         with pd.ExcelWriter(path, engine="openpyxl") as xw:
             for sheet, frame, freeze in (("per slice", df, (1, 3)), ("per file", pf, (1, 3)), ("settings", st, (1, 1)),
-                                         ("quality", q, (1, 1))):
+                                         ("quality", q, (1, 1)), *extra):
                 _clean(frame).to_excel(xw, sheet_name=sheet, index=False, freeze_panes=freeze)
                 ws = xw.sheets[sheet]
                 for k, col in enumerate(frame.columns, start=1):
                     w = min(max(len(str(col)), 10) + 2, 45)
                     ws.column_dimensions[openpyxl.utils.get_column_letter(k)].width = w
-        return path, df, pf, st, q
+        return path, df, pf, st, q, reg
     except ImportError:
         log("  WARNING: openpyxl not installed (pip install openpyxl) - writing CSV files instead")
         df.to_csv(base + "_per_slice.csv", index=False)
         pf.to_csv(base + "_per_file.csv", index=False)
         st.to_csv(base + "_settings.csv", index=False)
         q.to_csv(base + "_quality.csv", index=False)
-        return base + "_per_slice.csv", df, pf, st, q
+        for sheet, frame, _ in extra:
+            frame.to_csv(f"{base}_{sheet.replace(' ', '_')}.csv", index=False)
+        return base + "_per_slice.csv", df, pf, st, q, reg
 
 
 def write_combined(base, parts):
     """Combine the date summaries of several folders into one workbook <base>.xlsx.
-    parts: list of (folder, results folder, date, per-slice, per-file, settings, quality) frames.
+    parts: list of (folder, results folder, date, per-slice, per-file, settings, quality, registration) frames.
     Sheets: 'per slice' and 'per file' (all rows of all folders, with folder and
     results_folder columns first), 'settings' (each folder's settings, one block per
-    folder/date) and 'folders' (one line per folder/date: files, images, where the results are).
+    folder/date), 'folders' (one line per folder/date: files, images, where the results are), 'quality',
+    'changes' / 'statistics' / 'arm comparisons' (recomputed over all folders: gels of every folder are
+    pooled, shams matched by date) and 'registration'.
     Folder paths are written relative to the summary's location."""
     root = os.path.dirname(os.path.abspath(base))
     parts = [(os.path.relpath(fo, root), os.path.relpath(res, root), date, *fr) for fo, res, date, *fr in parts]
@@ -2138,8 +2275,9 @@ def write_combined(base, parts):
             out.append(f)
         return pd.concat(out, ignore_index=True, sort=False)
     per_slice, per_file, quality = tagged(0), tagged(1), tagged(3)
+    reg = tagged(4) if any(len(p[7]) for p in parts) else pd.DataFrame()
     st = []
-    for folder, res, date, _, _, s, _ in parts:
+    for folder, res, date, _, _, s, _, _ in parts:
         s = s.copy()
         s.insert(0, "date", date)
         s.insert(0, "folder", folder)
@@ -2148,9 +2286,11 @@ def write_combined(base, parts):
     ov = pd.DataFrame([dict(folder=folder, date=date, results_folder=res,
                             n_files=int(pf_["file"].nunique()), n_images=len(ps),
                             samples=", ".join(dict.fromkeys(pf_["sample"].astype(str))))
-                       for folder, res, date, ps, pf_, _, _ in parts])
+                       for folder, res, date, ps, pf_, _, _, _ in parts])
     sheets = (("per slice", per_slice, (1, 4)), ("per file", per_file, (1, 4)),
-              ("settings", st, (1, 2)), ("folders", ov, (1, 1)), ("quality", quality, (1, 3)))
+              ("settings", st, (1, 2)), ("folders", ov, (1, 1)), ("quality", quality, (1, 3)),
+              *[(n, f, (1, 1)) for n, f in _stat_sheets(per_file, "results_folder") if len(f)],
+              *([("registration", reg, (1, 4))] if len(reg) else []))
     try:
         import openpyxl  # noqa: F401
         path = base + ".xlsx"
@@ -2592,6 +2732,19 @@ def analyse_folder(P, folder, files, out, hs_given):
         PROGRESS.step()
     PROGRESS.finish()
     t_phase["reading files"] = time.time() - t_start
+    # experimental arm of every file (NC + AMF, AMF only, sham, ...): After files from their own name,
+    # Before files from the After files of their sample
+    for smp in dict.fromkeys(d["sample"] for d in data.values()):
+        names = [n for n, d in data.items() if d["sample"] == smp]
+        arms = [GS.file_arm(data[n]["condition"], data[n]["nc_nM"]) for n in names]
+        joined = " / ".join(dict.fromkeys(a for a in arms if a))
+        for n, a in zip(names, arms):
+            data[n]["arm"] = a or joined
+        if joined:
+            log(f"sample {smp}: arm {joined}")
+        if any(GS.is_sham(data[n]["condition"]) for n in names) and \
+                any(data[n]["condition"] == "After AMF" for n in names):
+            log(f"  note: sample {smp} has both a sham and an After-AMF file; each is compared with the Before file(s)")
     if P.fiber_model:
         for d in data.values():
             d["thr"] = P.fiber_cutoff
@@ -2656,7 +2809,7 @@ def analyse_folder(P, folder, files, out, hs_given):
             fh = np.zeros(len(FIB_EDGES) - 1)
             sh = np.zeros(len(SEG_EDGES) - 1)
             for (t, z), res, aux in results:
-                res.update(date=d["date"], sample=d["sample"], file=name, condition=d["condition"],
+                res.update(date=d["date"], sample=d["sample"], file=name, condition=d["condition"], arm=d["arm"],
                            collagen_mg_ml=d["collagen_mgml"], nc_conc_nM=d["nc_nM"], nc_mixing=d["mixing"],
                            nc_incubation_time=fmt_duration(d["inc_s"]), nc_incubation_time_s=d["inc_s"],
                            other=d["other"], **{k: d["custom"].get(k) for k in user_fields()},
@@ -2758,6 +2911,7 @@ def analyse_folder(P, folder, files, out, hs_given):
     for date in dates:
         dfiles = [n for n, d in data.items() if d["date"] == date]
         samples = {}
+        reg_rows, tc_frames = [], []
         for smp in sorted(set(data[n]["sample"] for n in dfiles)):
             samples[smp] = order_files([n for n in dfiles if data[n]["sample"] == smp], data)
             check_settings(samples[smp], data, f"within sample {smp}")
@@ -2773,6 +2927,15 @@ def analyse_folder(P, folder, files, out, hs_given):
             PROGRESS.set_item(f"sample_{smp}.png")
             if not single_file and fig_on("sample"):
                 sample_figure(smp, samples[smp], data, per, P, out)
+            if not single_file:
+                try:
+                    rr, tcd = sample_registration(smp, samples[smp], data, tiles, out, draw=fig_on("change_map"))
+                except Exception as e:                 # registration is an add-on: never stop the run
+                    log(f"  note: registration of sample {smp} failed: {e}")
+                    rr, tcd = [], pd.DataFrame()
+                reg_rows += rr
+                if len(tcd):
+                    tc_frames.append(tcd)
             PROGRESS.step()
         PROGRESS.set_item(f"{date} figures and spreadsheets")
         prefix = single_file or date
@@ -2781,7 +2944,13 @@ def analyse_folder(P, folder, files, out, hs_given):
         g_rows = global_settings(P, threshold_source, run_time, single_file, detail)
         f_rows = [r for n in dfiles for r in file_settings(data[n], threshold_source)]
         qd = quality[quality["file"].isin(dfiles)]
-        sheets.append((os.path.join(out, f"{prefix}_summary"), per[per.date == date], g_rows + f_rows, date, qd))
+        reg = pd.DataFrame(reg_rows)
+        if tc_frames:
+            tpath = os.path.join(out, f"{prefix}_tile_changes.csv")
+            pd.concat(tc_frames, ignore_index=True).to_csv(tpath, index=False)
+            log(f"  saved {os.path.relpath(tpath, out)}")
+            emit("OUT", "tile_changes", tpath)
+        sheets.append((os.path.join(out, f"{prefix}_summary"), per[per.date == date], g_rows + f_rows, date, qd, reg))
         if len(tiles):
             tpath = os.path.join(out, f"{prefix}_tiles.csv")
             tiles[tiles["file"].isin(dfiles)].to_csv(tpath, index=False)
@@ -2792,7 +2961,7 @@ def analyse_folder(P, folder, files, out, hs_given):
             for n in dfiles:
                 sheets.append((os.path.join(data[n]["file_out"], f"{n}_summary"), per[per.file == n],
                                g_rows + file_settings(data[n], threshold_source), None,
-                               quality[quality["file"] == n]))
+                               quality[quality["file"] == n], None))
         PROGRESS.step()
     PROGRESS.finish()
     t_phase["figures and spreadsheets"] = time.time() - t0
@@ -2802,8 +2971,9 @@ def analyse_folder(P, folder, files, out, hs_given):
               + ", ".join(f"{k} {Progress._t(v)}" for k, v in t_phase.items())
               + (f"; {total / n_slices:.1f} s per image" if n_slices else ""))
     summaries = []
-    for path, df_, rows_, date, qd in sheets:
-        written, *frames = write_spreadsheet(path, df_, rows_ + [("run_duration_s", round(total, 1), timing)], qd)
+    for path, df_, rows_, date, qd, reg in sheets:
+        written, *frames = write_spreadsheet(path, df_, rows_ + [("run_duration_s", round(total, 1), timing)], qd,
+                                             registration=reg, stats=date is not None)
         log(f"  saved {os.path.relpath(written, out)}")
         emit("OUT", "workbook" if date is not None else "file_workbook", written)
         if date is not None:

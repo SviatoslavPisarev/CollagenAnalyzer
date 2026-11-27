@@ -392,7 +392,8 @@ class DataPage(Page):
             font.setBold(src == "edited")
             it.setFont(font)
             it.setBackground(QBrush(EDITED_BG) if src == "edited" else QBrush())
-            col = (style.AFTER if v == "After AMF" else style.BEFORE) if f["key"] == "condition" else None
+            col = (style.AFTER if v == "After AMF" else style.SHAM if v == "After sham" else style.BEFORE) \
+                if f["key"] == "condition" else None
             it.setForeground(QBrush(QColor(col or ("#6b7785" if src == "default" else style.TEXT))))
             name_v = parsed_value(self.rows[path], f["key"]) if not f["custom"] else None
             tips = {"edited": f"Typed by hand (file name: {fmt_value(name_v) or 'nothing'}). Right-click → "
