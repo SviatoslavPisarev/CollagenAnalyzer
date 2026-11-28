@@ -7,7 +7,7 @@ import collagen_core as core
 import cloudfiles as CF
 
 APP_NAME = "Collagen Reflectance Analyzer"
-APP_VERSION = "1.1"
+APP_VERSION = "1.2"
 IMAGE_EXT = (".nd2", ".tif", ".tiff")
 
 DEFAULTS = vars(core.build_parser().parse_args(["."]))
