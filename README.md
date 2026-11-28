@@ -5,7 +5,7 @@ Desktop app for Mac and Windows that measures the structure of collagen hydrogel
 It compares files before and after AMF treatment, across samples and across experiments, and makes figures and
 spreadsheets ready for papers.
 
-Matsui Lab · Hunter College (CUNY) · version 1.1
+Matsui Lab · Hunter College (CUNY) · version 1.2
 
 ![Results & Plots page](docs/img/plot_perfile.png)
 
